@@ -1,0 +1,37 @@
+# Aligns with spring-javaformat-maven-plugin (validate) and
+# spring-javaformat-checkstyle via maven-checkstyle-plugin.
+# Default formatter indentation is tabs; see .springjavaformatconfig for spaces.
+# https://github.com/spring-io/spring-javaformat
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+max_line_length = 120
+
+[*.{java,xml}]
+indent_style = tab
+indent_size = 4
+tab_width = 4
+continuation_indent_size = 8
+
+ij_smart_tabs = false
+ij_java_align_multiline_parameters = false
+
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2
+
+[*.properties]
+indent_style = space
+indent_size = 4
+
+[*.md]
+indent_style = space
+indent_size = 2
+
+[*.cmd]
+end_of_line = crlf
