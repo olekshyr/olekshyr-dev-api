@@ -13,19 +13,30 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @EnableWebSecurity
 public class SecurityConfig {
 
-	@Bean
-	public SecurityFilterChain filterChain(HttpSecurity http, AuthenticationService authenticationService) throws Exception {
-		http.csrf(AbstractHttpConfigurer::disable)
-			.authorizeHttpRequests(
-					authorizationManagerRequestMatcherRegistry -> authorizationManagerRequestMatcherRegistry
-						.requestMatchers("/**")
-						.authenticated())
-			.httpBasic(AbstractHttpConfigurer::disable)
-			.formLogin(AbstractHttpConfigurer::disable)
-			.sessionManagement(httpSecuritySessionManagementConfigurer -> httpSecuritySessionManagementConfigurer
-				.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-			.addFilterBefore(new AuthenticationFilter(authenticationService), UsernamePasswordAuthenticationFilter.class);
-		return http.build();
-	}
+  @Bean
+  public SecurityFilterChain filterChain(
+    HttpSecurity http,
+    AuthenticationService authenticationService
+  ) throws Exception {
+    http
+      .csrf(AbstractHttpConfigurer::disable)
+      .authorizeHttpRequests(authorizationManagerRequestMatcherRegistry ->
+        authorizationManagerRequestMatcherRegistry
+          .requestMatchers("/**")
+          .authenticated()
+      )
+      .httpBasic(AbstractHttpConfigurer::disable)
+      .formLogin(AbstractHttpConfigurer::disable)
+      .sessionManagement(httpSecuritySessionManagementConfigurer ->
+        httpSecuritySessionManagementConfigurer.sessionCreationPolicy(
+          SessionCreationPolicy.STATELESS
+        )
+      )
+      .addFilterBefore(
+        new AuthenticationFilter(authenticationService),
+        UsernamePasswordAuthenticationFilter.class
+      );
 
+    return http.build();
+  }
 }
