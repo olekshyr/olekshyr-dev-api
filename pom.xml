@@ -28,6 +28,7 @@
 		<url />
 	</scm>
 	<properties>
+		<argLine>-Duser.timezone=UTC</argLine>
 		<java.version>25</java.version>
 		<datasource-micrometer.version>2.2.1</datasource-micrometer.version>
 		<spring-cloud.version>2025.1.1</spring-cloud.version>
