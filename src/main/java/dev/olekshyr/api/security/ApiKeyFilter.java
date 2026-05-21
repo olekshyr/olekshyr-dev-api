@@ -5,11 +5,9 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -54,10 +52,6 @@ public abstract class ApiKeyFilter extends OncePerRequestFilter {
       );
       SecurityContextHolder.clearContext();
       response.setStatus(unauthorizedStatus());
-      response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-      PrintWriter writer = response.getWriter();
-      writer.print("{\"error\":\"Invalid API Key\"}");
-      writer.flush();
     }
   }
 }

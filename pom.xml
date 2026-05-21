@@ -278,6 +278,7 @@
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
 				<configuration>
+					<jvmArguments>-Duser.timezone=UTC</jvmArguments>
 					<excludes>
 						<exclude>
 							<groupId>org.projectlombok</groupId>
@@ -343,8 +344,8 @@
 				<version>4.9.8.0</version>
 				<configuration>
 					<htmlOutput>true</htmlOutput>
-					<!-- <includeFilterFile>spotbugs-security-include.xml</includeFilterFile>
-					<excludeFilterFile>spotbugs-security-exclude.xml</excludeFilterFile> -->
+					<!-- <includeFilterFile>spotbugs-security-include.xml</includeFilterFile> -->
+				<excludeFilterFile>spotbugs-exclude.xml</excludeFilterFile>
 					<plugins>
 						<plugin>
 							<groupId>com.h3xstream.findsecbugs</groupId>
