@@ -1,0 +1,7 @@
+<FindBugsFilter>
+  <!-- ApiErrorResponse.details is defensively copied via List.copyOf() in the compact constructor -->
+  <Match>
+    <Class name="dev.olekshyr.api.shared.ApiErrorResponse"/>
+    <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+  </Match>
+</FindBugsFilter>
