@@ -16,8 +16,25 @@ import org.springframework.util.Assert;
 @EnableWebSecurity
 public class SecurityConfig {
 
+  // TODO: restrict /actuator/health and /actuator/info to internal network only (e.g. nginx allow/deny or cloud firewall rule)
   @Bean
   @Order(1)
+  public SecurityFilterChain actuatorFilterChain(HttpSecurity http)
+    throws Exception {
+    http
+      .securityMatcher("/actuator/health", "/actuator/info")
+      .csrf(AbstractHttpConfigurer::disable)
+      .authorizeHttpRequests(r -> r.anyRequest().permitAll())
+      .httpBasic(AbstractHttpConfigurer::disable)
+      .formLogin(AbstractHttpConfigurer::disable)
+      .sessionManagement(s ->
+        s.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+      );
+    return http.build();
+  }
+
+  @Bean
+  @Order(3)
   public SecurityFilterChain adminFilterChain(
     HttpSecurity http,
     @Value("${app.security.headerName}") String headerName,
@@ -41,7 +58,7 @@ public class SecurityConfig {
   }
 
   @Bean
-  @Order(2)
+  @Order(4)
   public SecurityFilterChain publicFilterChain(
     HttpSecurity http,
     @Value("${app.security.headerName}") String headerName,

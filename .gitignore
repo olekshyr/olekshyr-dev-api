@@ -8,6 +8,7 @@ tmp/
 *.env
 .env
 .claude
+.serena
 
 ### STS ###
 .apt_generated
