@@ -16,14 +16,14 @@ The API is a backend service consumed by controlled clients — internal systems
 
 Use static API keys delivered in a custom HTTP header. Two distinct keys are issued — one per access tier — enforced by two separate Spring Security filter chains registered at explicit priorities.
 
-The chains are ordered so that the administrative chain is evaluated first, covering only the administrative route namespace. The general chain covers all remaining routes. A request that presents a valid key for the wrong tier is rejected by the chain that owns that route — key reuse across tiers is not permitted.
+The chains are ordered so that the administrative chain is evaluated ahead of the general chain, covering only the administrative route namespace. The general chain covers all remaining routes. A request that presents a valid key for the wrong tier is rejected by the chain that owns that route — key reuse across tiers is not permitted. A separate, higher-priority chain leaves a small set of operational actuator endpoints (health, info) unauthenticated; access to those is expected to be restricted at the infrastructure layer rather than by key.
 
-Each filter chain:
+Each keyed filter chain:
 
 - Is stateless. No session is created or consulted at any point.
 - Applies its filter before Spring's default authentication processing.
 - Uses a constant-time key comparison to eliminate timing side-channels during key validation.
-- Short-circuits the filter chain on rejection, writing a uniform error response and clearing any partial security context.
+- Short-circuits the filter chain on rejection, returning the tier's status code (403 for the administrative tier, 401 for the general tier) with an empty response body, and clearing any partial security context.
 
 Spring Security's CSRF protection, HTTP Basic authentication, and form login are all disabled — none are applicable to machine-to-machine API key flows. `UserDetailsService` autoconfiguration is excluded from the application context entirely, since this service has no concept of user identity.
 
