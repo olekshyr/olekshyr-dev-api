@@ -2,7 +2,8 @@
 
 **Status:** Design input · **Date:** 2026-05-28
 
-**Feeds into:** the Phase 1.1 Flyway migration and the Post/Tag JPA entities.
+**Feeds into:** `V1__create_posts.sql` (applied) and the Post/Tag JPA entities
+(plan Phase 1).
 
 ## Purpose
 
