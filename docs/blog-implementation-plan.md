@@ -127,9 +127,18 @@ site search (v2), comments, scheduled publishing, media library, cover image
 Goal: Java types that map cleanly onto the existing `V1__create_posts.sql`
 schema. No endpoints yet — verify with `@DataJpaTest` against TestContainers.
 
-> Status 2026-10-17: entity classes for 1.2–1.5 are written (uncommitted) but
-> have no accessors/constructors yet and fail `spotless:check`. JPA auditing is
-> enabled in `ApiApplication`, and `ddl-auto=validate` is set.
+> Status 2026-10-17: 1.1–1.6 done (entities with lifecycle rules, repositories,
+> `PostLifecycleTest` unit tests passing). 1.7 is done (`BlogRepositoryTest`,
+> `@DataJpaTest` + Postgres Testcontainer): the repository tests ran and passed
+> (12/12; full suite 37/37 green on 2026-10-17).
+>
+> Deviations: no separate `TagTranslationRepository` (translations are reached
+> through `Tag`, cascade ALL); `@EnableJpaAuditing` lives in `blog/JpaAuditingConfig`
+> (not on `ApiApplication`, which broke `@WebMvcTest` slices); Hibernate-enhancer
+> synthetic methods are excluded from SpotBugs EI_EXPOSE_REP in
+> `spotbugs-exclude.xml`; with `enableAssociationManagement` the enhancer
+> auto-adds children to parent collections, so `putTranslation`/`putName` add
+> only if absent.
 
 - [x] **1.1 Shared enums**
   Create `dev.olekshyr.api.blog.SupportedLocale` (`EN, UK, JA`) and
@@ -142,14 +151,14 @@ schema. No endpoints yet — verify with `@DataJpaTest` against TestContainers.
   admin URLs needs a separate case-insensitive Spring `Converter<String,
   SupportedLocale>` (Phase 3).
 
-- [ ] **1.2 `Tag` + `TagTranslation` entities**
+- [x] **1.2 `Tag` + `TagTranslation` entities**
   Start here — simplest pair, no publishing logic. `Tag` has `id`, `slug`,
   `color`, timestamps. `TagTranslation` has `id`, `tagId`/`@ManyToOne tag`,
   `locale`, `name`. Map the two unique constraints
   (`(tag_id, locale)` and `(locale, name)`) with `@UniqueConstraint` in
   `@Table` for documentation parity even though Flyway already enforces them.
 
-- [ ] **1.3 `Post` + `PostTranslation` entities**
+- [x] **1.3 `Post` + `PostTranslation` entities**
   `Post`: `id`, `slug`, `createdAt`, `updatedAt`, `deletedAt`. `PostTranslation`:
   `id`, `@ManyToOne post`, `locale`, `title`, `excerpt`, `body`, `metaTitle`,
   `metaDescription`, `status`, `publishedAt`, timestamps. Use
@@ -158,18 +167,18 @@ schema. No endpoints yet — verify with `@DataJpaTest` against TestContainers.
   they're easy to unit test: `publish()` (D8/D9), `unpublish()` (D8),
   `changeSlug()` (D10, frozen once any translation has `publishedAt`).
 
-- [ ] **1.4 Post ↔ Tag many-to-many**
+- [x] **1.4 Post ↔ Tag many-to-many**
   `post_tags` has no columns beyond the composite PK, so a plain
   `@ManyToMany` with `@JoinTable("post_tags", joinColumns = post_id,
   inverseJoinColumns = tag_id)` on `Post` is sufficient — no separate entity
   needed.
 
-- [ ] **1.5 Auditing timestamps**
+- [x] **1.5 Auditing timestamps**
   JPA auditing (`@EnableJpaAuditing` + `@CreatedDate`/`@LastModifiedDate`).
   Only `posts`, `post_translations`, and `tags` have timestamp columns —
   `tag_translations` has none, so don't add auditing fields there.
 
-- [ ] **1.6 Repositories**
+- [x] **1.6 Repositories**
   - `PostRepository extends JpaRepository<Post, Long>` — add
     `findBySlugAndDeletedAtIsNull(String slug)`, `existsBySlug(String slug)`
     (includes deleted rows, per D10), and the admin list query (D16).
@@ -186,7 +195,7 @@ schema. No endpoints yet — verify with `@DataJpaTest` against TestContainers.
   - `TagRepository` + `TagTranslationRepository` similarly, including the
     "tags used by a post visible in locale X" query for D6.
 
-- [ ] **1.7 Verify with `@DataJpaTest`**
+- [x] **1.7 Verify with `@DataJpaTest`**
   Write one test per repository that persists a row and reads it back via the
   custom query. This is your checkpoint before moving to Phase 2 — if the
   mappings are wrong, fix them here while the surface area is small.

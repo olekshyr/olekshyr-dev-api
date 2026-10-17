@@ -4,4 +4,9 @@
     <Class name="dev.olekshyr.api.shared.ApiErrorResponse"/>
     <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
   </Match>
+  <!-- Methods synthesized by the Hibernate bytecode enhancer (hibernate-maven-plugin) expose entity internals by design -->
+  <Match>
+    <Method name="~\$\$_hibernate_.*"/>
+    <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+  </Match>
 </FindBugsFilter>
