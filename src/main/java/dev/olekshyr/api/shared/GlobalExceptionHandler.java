@@ -1,34 +1,67 @@
 package dev.olekshyr.api.shared;
 
 import io.opentelemetry.api.trace.Span;
-import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.Nullable;
 import org.springframework.context.MessageSource;
 import org.springframework.context.i18n.LocaleContextHolder;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.ServletWebRequest;
+import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
-import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
+/**
+ * Maps every exception to the {@link ApiErrorResponse} envelope. Spring MVC's
+ * own exceptions keep the status Spring picked for them (D20).
+ */
 @Slf4j
 @RestControllerAdvice
 @RequiredArgsConstructor
-public class GlobalExceptionHandler {
+public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
   private static final String ALL_ZEROS_TRACE_ID = "0".repeat(32);
 
   private final MessageSource messageSource;
 
-  @ExceptionHandler(MethodArgumentNotValidException.class)
-  ResponseEntity<ApiErrorResponse> handleMethodArgumentNotValid(
+  @ExceptionHandler(ApiException.class)
+  ResponseEntity<Object> handleApiException(
+    ApiException ex,
+    WebRequest request
+  ) {
+    return ResponseEntity
+      .status(ex.status())
+      .body(buildResponse(ex.errorCode(), request, null));
+  }
+
+  @ExceptionHandler(Exception.class)
+  ResponseEntity<Object> handleGeneric(Exception ex, WebRequest request) {
+    log.error(
+      "Unhandled exception for path {}: {}",
+      path(request),
+      ex.getMessage(),
+      ex
+    );
+    return ResponseEntity
+      .internalServerError()
+      .body(buildResponse(ErrorCode.INTERNAL_ERROR, request, null));
+  }
+
+  @Override
+  protected ResponseEntity<Object> handleMethodArgumentNotValid(
     MethodArgumentNotValidException ex,
-    HttpServletRequest request
+    HttpHeaders headers,
+    HttpStatusCode status,
+    WebRequest request
   ) {
     List<ApiFieldError> details = ex
       .getBindingResult()
@@ -37,21 +70,21 @@ public class GlobalExceptionHandler {
       .map(fe ->
         new ApiFieldError(
           fe.getField(),
-          toErrorCode(fe.getCode()),
+          toConstraintCode(fe.getCode()),
           fe.getDefaultMessage()
         )
       )
       .toList();
 
-    return ResponseEntity
-      .badRequest()
-      .body(buildResponse(ErrorCode.VALIDATION_FAILED, request, details));
+    return validationFailed(ex, details, headers, status, request);
   }
 
-  @ExceptionHandler(HandlerMethodValidationException.class)
-  ResponseEntity<ApiErrorResponse> handleHandlerMethodValidation(
+  @Override
+  protected ResponseEntity<Object> handleHandlerMethodValidationException(
     HandlerMethodValidationException ex,
-    HttpServletRequest request
+    HttpHeaders headers,
+    HttpStatusCode status,
+    WebRequest request
   ) {
     List<ApiFieldError> details = ex
       .getParameterValidationResults()
@@ -65,48 +98,65 @@ public class GlobalExceptionHandler {
             String code = codes != null && codes.length > 0 ? codes[0] : null;
             return new ApiFieldError(
               pvr.getMethodParameter().getParameterName(),
-              toErrorCode(code),
+              toConstraintCode(code),
               err.getDefaultMessage()
             );
           })
       )
       .toList();
 
-    return ResponseEntity
-      .badRequest()
-      .body(buildResponse(ErrorCode.VALIDATION_FAILED, request, details));
+    return validationFailed(ex, details, headers, status, request);
   }
 
-  @ExceptionHandler(NoResourceFoundException.class)
-  ResponseEntity<ApiErrorResponse> handleNoResourceFound(
-    NoResourceFoundException ex,
-    HttpServletRequest request
-  ) {
-    return ResponseEntity
-      .status(HttpStatus.NOT_FOUND)
-      .body(buildResponse(ErrorCode.NOT_FOUND, request, null));
-  }
-
-  @ExceptionHandler(Exception.class)
-  ResponseEntity<ApiErrorResponse> handleGeneric(
+  /** Every other Spring MVC exception lands here with Spring's own status. */
+  @Override
+  protected ResponseEntity<Object> handleExceptionInternal(
     Exception ex,
-    HttpServletRequest request
+    @Nullable Object body,
+    HttpHeaders headers,
+    HttpStatusCode statusCode,
+    WebRequest request
   ) {
-    log.error(
-      "Unhandled exception for path {}: {}",
-      request.getRequestURI(),
-      ex.getMessage(),
-      ex
+    if (statusCode.is5xxServerError()) {
+      log.error(
+        "Request failed for path {}: {}",
+        path(request),
+        ex.getMessage(),
+        ex
+      );
+    }
+    Object envelope = body instanceof ApiErrorResponse
+      ? body
+      : buildResponse(errorCodeFor(statusCode), request, null);
+    return super.handleExceptionInternal(
+      ex,
+      envelope,
+      headers,
+      statusCode,
+      request
     );
-    return ResponseEntity
-      .internalServerError()
-      .body(buildResponse(ErrorCode.INTERNAL_ERROR, request, null));
+  }
+
+  private ResponseEntity<Object> validationFailed(
+    Exception ex,
+    List<ApiFieldError> details,
+    HttpHeaders headers,
+    HttpStatusCode status,
+    WebRequest request
+  ) {
+    return handleExceptionInternal(
+      ex,
+      buildResponse(ErrorCode.VALIDATION_FAILED, request, details),
+      headers,
+      status,
+      request
+    );
   }
 
   private ApiErrorResponse buildResponse(
     ErrorCode errorCode,
-    HttpServletRequest request,
-    List<ApiFieldError> details
+    WebRequest request,
+    @Nullable List<ApiFieldError> details
   ) {
     String message = messageSource.getMessage(
       errorCode.messageKey(),
@@ -123,13 +173,38 @@ public class GlobalExceptionHandler {
       errorCode.name(),
       message,
       Instant.now(),
-      request.getRequestURI(),
+      path(request),
       traceId,
       details
     );
   }
 
-  private static String toErrorCode(String constraintCode) {
+  /**
+   * Codes for statuses Spring picked (D20). Statuses {@link HttpStatus} doesn't
+   * define, like 499, map by series instead of failing.
+   */
+  private static ErrorCode errorCodeFor(HttpStatusCode status) {
+    if (!status.is4xxClientError()) return ErrorCode.INTERNAL_ERROR;
+    HttpStatus known = HttpStatus.resolve(status.value());
+    if (known == null) return ErrorCode.REQUEST_REJECTED;
+    return switch (known) {
+      case BAD_REQUEST -> ErrorCode.VALIDATION_FAILED;
+      case NOT_FOUND -> ErrorCode.NOT_FOUND;
+      case METHOD_NOT_ALLOWED,
+        NOT_ACCEPTABLE,
+        UNSUPPORTED_MEDIA_TYPE -> ErrorCode.UNSUPPORTED_REQUEST;
+      case CONFLICT -> ErrorCode.CONFLICT;
+      default -> ErrorCode.REQUEST_REJECTED;
+    };
+  }
+
+  private static String path(WebRequest request) {
+    return request instanceof ServletWebRequest servletRequest
+      ? servletRequest.getRequest().getRequestURI()
+      : null;
+  }
+
+  private static String toConstraintCode(String constraintCode) {
     if (constraintCode == null) return null;
     return constraintCode.replaceAll("([a-z])([A-Z])", "$1_$2").toUpperCase();
   }

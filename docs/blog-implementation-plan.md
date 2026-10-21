@@ -127,11 +127,14 @@ disagree, this section wins.
   nicer copy.
 - New codes in this plan: `TRANSLATION_NOT_AVAILABLE` (404),
   `UNSUPPORTED_REQUEST` (405/406/415), `DUPLICATE_SLUG` (409),
-  `SLUG_FROZEN` (409), `TAG_IN_USE` (409), `CONFLICT` (409, generic fallback).
+  `SLUG_FROZEN` (409), `TAG_IN_USE` (409), `CONFLICT` (409, generic fallback),
+  `REQUEST_REJECTED` (any other 4xx; added in the Phase 2 review).
 - **D20 — Spring MVC's own 4xx exceptions keep their status.**
   `GlobalExceptionHandler` extends `ResponseEntityExceptionHandler` and
   overrides `handleExceptionInternal` to wrap them in the envelope: 400 →
-  `VALIDATION_FAILED`, 404 → `NOT_FOUND`, 405/406/415 → `UNSUPPORTED_REQUEST`.
+  `VALIDATION_FAILED`, 404 → `NOT_FOUND`, 405/406/415 → `UNSUPPORTED_REQUEST`,
+  409 → `CONFLICT`, any other 4xx (including non-standard ones like 499) →
+  `REQUEST_REJECTED`, 5xx → `INTERNAL_ERROR`.
   Without this the `Exception` catch-all turns them (e.g. a `POST` to a
   read-only route, or malformed JSON in Phase 3) into `500 INTERNAL_ERROR`.
 - **D21 — Error-mapping module boundary:** `shared` defines an abstract
@@ -252,6 +255,37 @@ Routes fall under the existing public filter chain (`PUBLIC_API_KEY`). The
 locale always comes from `Accept-Language` (D1). The public tag list is v2
 (D6).
 
+> Status 2026-10-22: 2.0–2.4 and 2.6 done; 2.5 moved to v2. After a code
+> review pass: full suite 104/104 green, SpotBugs clean, smoke script 21/21
+> with `-Seed`, and Swagger UI checked in a browser with `APP_DOCS_PUBLIC=true`.
+>
+> Deviations and review fixes:
+> - Test overrides moved from `src/test/resources/application.properties` to
+>   `src/test/resources/config/application.properties`. The root-level file
+>   shadowed the main one, so no main property (pagination, `ddl-auto=validate`,
+>   …) applied in tests. Loading it exposed a startup crash, fixed below.
+> - The web slice tests use `@WebMvcTest(useDefaultFilters = false)` and
+>   `@Import` what they need: a bare `@WebMvcTest` scans `PostController`,
+>   whose service isn't in the slice.
+> - `GET /api/v1/posts` documents `page`/`size` explicitly and hides the
+>   ignored `sort` (part of 6.1).
+> - Read time also treats HTML entities (`&nbsp;`) as spaces.
+> - The smoke script (`.claude/skills/run-olekshyr-dev-api`) gained a `-Seed`
+>   switch, sends the seed to `psql` as UTF-8, and kills the app's process tree
+>   on exit.
+> - Not changed: the list still loads full bodies to compute read time (the
+>   ERD says read time is never stored; Phase 4 caching covers it).
+>
+> - OTLP startup crash (pre-existing): `management.*.otlp.endpoint=${OTLP_*:}`
+>   in `application.properties` resolved to `""` when the env var was unset,
+>   and the OTLP log exporter rejects an empty endpoint, so the app only
+>   started where Docker Compose supplied the Grafana connection. Now
+>   `logging.OtlpEndpointEnvironmentPostProcessor` maps `OTLP_TRACING_ENDPOINT`
+>   / `OTLP_LOGGING_ENDPOINT` / `OTLP_METRICS_ENDPOINT` onto Boot's properties
+>   only when set. Unset means no trace/log exporter; metrics fall back to
+>   Boot's default `localhost:4318` push. Verified by running the packaged jar
+>   without Compose or `OTLP_*` vars.
+
 Tests ride along with each step: write the matching 5.2 `MockMvc` cases as you
 go, the same way 1.7 did for Phase 1, instead of saving them all for Phase 5.
 Test data comes from a checked-in `src/test/resources/blog-seed.sql` (a few
@@ -259,7 +293,7 @@ posts across locales, drafts, a deleted post, tags with and without names in
 each locale), loaded with `@Sql` in tests and with `psql` for the 2.6 smoke
 test. It never goes through Flyway, so it can't reach prod.
 
-- [ ] **2.0 Locale and error plumbing**
+- [x] **2.0 Locale and error plumbing**
   - Move `SupportedLocale` (and its JPA converter) from `blog` to `shared`:
     the `LocaleResolver` is global (admin error messages need it too), so it
     can't depend on `blog`.
@@ -291,14 +325,14 @@ test. It never goes through Flyway, so it can't reach prod.
     `/swagger-ui/**`, `/swagger-ui.html` and `/v3/api-docs/**` when
     `app.docs.public=true` (D22). Set it in `.env` locally.
 
-- [ ] **2.1 Response DTOs**
+- [x] **2.1 Response DTOs**
   `PostSummaryResponse` (slug, title, excerpt, tags, publishedAt,
   readTimeMinutes) for the list. `PostDetailResponse` adds body, metaTitle (D7
   fallback), metaDescription, updatedAt and availableLocales (D18 format).
   `TagResponse` has slug, name (D6 fallback) and color; tags are sorted by
   slug. Use Java `record`s, consistent with `ApiErrorResponse`.
 
-- [ ] **2.2 Read-time calculator**
+- [x] **2.2 Read-time calculator**
   Small utility (`ReadTimeCalculator` or similar) — word count of `body` / 200,
   rounded up, minimum 1. The body is HTML — strip tags before counting
   (a simple `replaceAll("<[^>]*>", " ")` is fine at this fidelity), otherwise
@@ -307,7 +341,7 @@ test. It never goes through Flyway, so it can't reach prod.
   by whitespace undercounts Japanese, which doesn't put spaces between words.
   Count characters for `ja` (≈500 chars/min is a common estimate).
 
-- [ ] **2.3 `PostQueryService`**
+- [x] **2.3 `PostQueryService`**
   `listPublished(SupportedLocale, Pageable)` → `PageResponse<PostSummaryResponse>`
   and `getPublished(String slug, SupportedLocale)`. The latter throws:
   - `TranslationNotAvailableException` → `404 TRANSLATION_NOT_AVAILABLE` when
@@ -319,7 +353,7 @@ test. It never goes through Flyway, so it can't reach prod.
   branch and also feeds `availableLocales`; it sorts by the DB string
   (`en, ja, uk`), so re-sort into enum order (D18).
 
-- [ ] **2.4 `PostController`**
+- [x] **2.4 `PostController`**
   - `GET /api/v1/posts?page=0&size=10` → `PageResponse<PostSummaryResponse>` (D4)
   - `GET /api/v1/posts/{slug}` → `PostDetailResponse`
 
@@ -328,7 +362,7 @@ test. It never goes through Flyway, so it can't reach prod.
 
 - [ ] ~~**2.5 `GET /api/v1/tags`**~~ — moved to v2 with filter-by-tag (D6).
 
-- [ ] **2.6 Manual smoke test**
+- [x] **2.6 Manual smoke test**
   Load `blog-seed.sql` with `psql`, `mvnw.cmd spring-boot:run`, then hit the
   endpoints with `curl` + your `PUBLIC_API_KEY`, once per `Accept-Language`
   (`en`, `uk`, `ja`, `fr`, none). Check `Content-Language`/`Vary`, a

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.olekshyr.api.PostgresContainerConfiguration;
 import dev.olekshyr.api.shared.JpaAuditingConfig;
+import dev.olekshyr.api.shared.SupportedLocale;
 import jakarta.persistence.EntityManager;
 import java.time.Instant;
 import java.util.List;
