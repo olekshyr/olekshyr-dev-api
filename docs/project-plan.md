@@ -60,7 +60,7 @@ and a browser-callable Java API.
 | Blog authoring | WYSIWYG editor in admin (CKEditor leading option); HTML stored in Postgres via the API |
 | HTML sanitization | OWASP Java HTML Sanitizer with a CKEditor-compatible allowlist |
 | API versioning | URL path: `/api/v1/...` |
-| Pagination | Offset-based: `?page=0&size=20` (wrapper shape: see blog plan 2.4) |
+| Pagination | Offset-based: `?page=0&size=10`, `size` capped at 50 (wrapper shape and edge cases: see blog plan D4) |
 | Tags | Entities with a join table |
 | i18n | `en` (default), `uk`, `ja` for UI strings and blog content. URLs: `/blog/my-post`, `/uk/blog/my-post`, `/ja/blog/my-post` (English unprefixed). Slug shared across locales. **No fallback:** show "not available in this language" |
 | Environments | Two only: local + prod (no staging). Secrets in git-ignored `.env` locally and host env vars in prod; never in properties files |
@@ -108,7 +108,7 @@ Applies to every surface: public pages, `/admin`, the REST API and infrastructur
 
 ### Later
 - [ ] **CI extras:** deploy step, OpenAPI breaking-change check (oasdiff), JaCoCo coverage floor (e.g. 60% of lines).
-- [ ] **Site search (v2):** Postgres full-text (`tsvector` + GIN index) over published posts; `GET /api/v1/search?q=...&page=0&size=20`; return snippets with highlights.
+- [ ] **Site search (v2):** Postgres full-text (`tsvector` + GIN index) over published posts; `GET /api/v1/search?q=...&page=0&size=10`; return snippets with highlights.
 - [ ] **Media upload:** `POST /api/v1/admin/media` to S3-compatible storage, returning a CDN URL; validate type and size server-side. Unblocks the blog `cover_image` column (nullable, non-breaking migration).
 
 ### Ongoing
