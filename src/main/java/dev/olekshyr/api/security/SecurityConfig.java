@@ -1,6 +1,7 @@
 package dev.olekshyr.api.security;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -23,6 +24,28 @@ public class SecurityConfig {
     throws Exception {
     http
       .securityMatcher("/actuator/health", "/actuator/info")
+      .csrf(AbstractHttpConfigurer::disable)
+      .authorizeHttpRequests(r -> r.anyRequest().permitAll())
+      .httpBasic(AbstractHttpConfigurer::disable)
+      .formLogin(AbstractHttpConfigurer::disable)
+      .sessionManagement(s ->
+        s.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+      );
+    return http.build();
+  }
+
+  @Bean
+  @Order(2)
+  @ConditionalOnBooleanProperty("app.docs.public")
+  public SecurityFilterChain docsFilterChain(HttpSecurity http)
+    throws Exception {
+    http
+      .securityMatcher(
+        "/swagger-ui.html",
+        "/swagger-ui/**",
+        "/v3/api-docs/**",
+        "/v3/api-docs.yaml"
+      )
       .csrf(AbstractHttpConfigurer::disable)
       .authorizeHttpRequests(r -> r.anyRequest().permitAll())
       .httpBasic(AbstractHttpConfigurer::disable)

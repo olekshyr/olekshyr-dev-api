@@ -11,7 +11,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
-@WebMvcTest
+@WebMvcTest(useDefaultFilters = false)
 @Import(SecurityConfig.class)
 @TestPropertySource(
   properties = {
@@ -26,16 +26,16 @@ class SecurityFilterChainTest {
   private MockMvc mockMvc;
 
   @Test
-  void publicEndpoint_validPublicKey_returns200() throws Exception {
+  void publicEndpoint_validPublicKey_passesAuth() throws Exception {
     mockMvc
-      .perform(get("/greeting").header("X-API-Key", "pub-key"))
-      .andExpect(status().isOk());
+      .perform(get("/api/v1/anything").header("X-API-Key", "pub-key"))
+      .andExpect(status().isNotFound());
   }
 
   @Test
   void publicEndpoint_wrongKey_returns401() throws Exception {
     mockMvc
-      .perform(get("/greeting").header("X-API-Key", "wrong"))
+      .perform(get("/api/v1/anything").header("X-API-Key", "wrong"))
       .andExpect(status().isUnauthorized())
       .andExpect(content().string(""));
   }
@@ -43,7 +43,7 @@ class SecurityFilterChainTest {
   @Test
   void publicEndpoint_noHeader_returns401() throws Exception {
     mockMvc
-      .perform(get("/greeting"))
+      .perform(get("/api/v1/anything"))
       .andExpect(status().isUnauthorized())
       .andExpect(content().string(""));
   }
@@ -51,7 +51,7 @@ class SecurityFilterChainTest {
   @Test
   void publicEndpoint_adminKey_returns401() throws Exception {
     mockMvc
-      .perform(get("/greeting").header("X-API-Key", "admin-key"))
+      .perform(get("/api/v1/anything").header("X-API-Key", "admin-key"))
       .andExpect(status().isUnauthorized())
       .andExpect(content().string(""));
   }

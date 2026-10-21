@@ -13,16 +13,21 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
-@WebMvcTest
+@WebMvcTest(useDefaultFilters = false)
 @Import(
   {
     SecurityConfig.class,
@@ -101,6 +106,122 @@ class GlobalExceptionHandlerTest {
       .andExpect(jsonPath("$.details").doesNotExist());
   }
 
+  @Test
+  void apiException_usesItsStatusAndCode() throws Exception {
+    mockMvc
+      .perform(get("/test/api-exception").header("X-API-Key", "pub-key"))
+      .andExpect(status().isNotFound())
+      .andExpect(jsonPath("$.code").value("TRANSLATION_NOT_AVAILABLE"))
+      .andExpect(
+        jsonPath("$.message")
+          .value("This post is not available in the requested language.")
+      )
+      .andExpect(jsonPath("$.details").doesNotExist());
+  }
+
+  @Test
+  void apiException_withJapaneseLocale_returnsTranslatedMessage()
+    throws Exception {
+    mockMvc
+      .perform(
+        get("/test/api-exception")
+          .header("X-API-Key", "pub-key")
+          .header("Accept-Language", "ja")
+      )
+      .andExpect(
+        jsonPath("$.message")
+          .value("この記事はリクエストされた言語では公開されていません。")
+      );
+  }
+
+  @Test
+  void wrongMethod_returns405UnsupportedRequest() throws Exception {
+    mockMvc
+      .perform(post("/test/error").header("X-API-Key", "pub-key"))
+      .andExpect(status().isMethodNotAllowed())
+      .andExpect(jsonPath("$.code").value("UNSUPPORTED_REQUEST"))
+      .andExpect(jsonPath("$.path").value("/test/error"));
+  }
+
+  @Test
+  void unsupportedMediaType_returns415UnsupportedRequest() throws Exception {
+    mockMvc
+      .perform(
+        post("/test/validate")
+          .header("X-API-Key", "pub-key")
+          .contentType(MediaType.TEXT_PLAIN)
+          .content("hello")
+      )
+      .andExpect(status().isUnsupportedMediaType())
+      .andExpect(jsonPath("$.code").value("UNSUPPORTED_REQUEST"));
+  }
+
+  @Test
+  void malformedJson_returns400ValidationFailed() throws Exception {
+    mockMvc
+      .perform(
+        post("/test/validate")
+          .header("X-API-Key", "pub-key")
+          .contentType(MediaType.APPLICATION_JSON)
+          .content("{not json")
+      )
+      .andExpect(status().isBadRequest())
+      .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+  }
+
+  @Test
+  void typeMismatch_returns400ValidationFailed() throws Exception {
+    mockMvc
+      .perform(
+        get("/test/number").param("n", "abc").header("X-API-Key", "pub-key")
+      )
+      .andExpect(status().isBadRequest())
+      .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+  }
+
+  @Test
+  void conflictStatus_returnsConflictCode() throws Exception {
+    mockMvc
+      .perform(get("/test/status/409").header("X-API-Key", "pub-key"))
+      .andExpect(status().isConflict())
+      .andExpect(jsonPath("$.code").value("CONFLICT"));
+  }
+
+  @Test
+  void otherClientError_returnsRequestRejected() throws Exception {
+    mockMvc
+      .perform(get("/test/status/413").header("X-API-Key", "pub-key"))
+      .andExpect(status().isPayloadTooLarge())
+      .andExpect(jsonPath("$.code").value("REQUEST_REJECTED"));
+  }
+
+  @Test
+  void nonStandardClientStatus_keepsStatusWithEnvelope() throws Exception {
+    mockMvc
+      .perform(get("/test/status/499").header("X-API-Key", "pub-key"))
+      .andExpect(status().is(499))
+      .andExpect(jsonPath("$.code").value("REQUEST_REJECTED"));
+  }
+
+  @Test
+  void nonStandardServerStatus_returnsInternalError() throws Exception {
+    mockMvc
+      .perform(get("/test/status/599").header("X-API-Key", "pub-key"))
+      .andExpect(status().is(599))
+      .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"));
+  }
+
+  static class NotAvailableException extends ApiException {
+
+    NotAvailableException() {
+      super(
+        ErrorCode.TRANSLATION_NOT_AVAILABLE,
+        HttpStatus.NOT_FOUND,
+        "not available"
+      );
+    }
+  }
+
   @RestController
   static class TestController {
 
@@ -114,6 +235,21 @@ class GlobalExceptionHandlerTest {
     @GetMapping("/test/error")
     ResponseEntity<Void> error() {
       throw new RuntimeException("boom");
+    }
+
+    @GetMapping("/test/api-exception")
+    ResponseEntity<Void> apiException() {
+      throw new NotAvailableException();
+    }
+
+    @GetMapping("/test/status/{code}")
+    ResponseEntity<Void> status(@PathVariable int code) {
+      throw new ResponseStatusException(HttpStatusCode.valueOf(code));
+    }
+
+    @GetMapping("/test/number")
+    ResponseEntity<Void> number(@RequestParam int n) {
+      return ResponseEntity.ok().build();
     }
   }
 }

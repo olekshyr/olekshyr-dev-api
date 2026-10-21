@@ -1,5 +1,6 @@
 package dev.olekshyr.api.blog;
 
+import dev.olekshyr.api.shared.SupportedLocale;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;

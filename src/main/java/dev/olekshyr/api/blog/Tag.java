@@ -1,5 +1,6 @@
 package dev.olekshyr.api.blog;
 
+import dev.olekshyr.api.shared.SupportedLocale;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.ArrayList;

@@ -3,6 +3,7 @@ package dev.olekshyr.api.blog;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.olekshyr.api.shared.SupportedLocale;
 import java.time.Instant;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
