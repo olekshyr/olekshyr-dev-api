@@ -9,23 +9,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import dev.olekshyr.api.PostgresContainerConfiguration;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.jdbc.Sql;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 /** Public read API against a real Postgres, seeded from blog-seed.sql. */
-@SpringBootTest
-@AutoConfigureMockMvc
-@Import(PostgresContainerConfiguration.class)
-@Sql("/blog-seed.sql")
+@BlogApiTest
 class PostApiIntegrationTest {
 
   private static final String KEY_HEADER = "X-Api-Key";

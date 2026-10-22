@@ -1,7 +1,8 @@
 # Blog Feature — Implementation Plan
 
 **Status:** In progress · **Date:** 2026-06-11 · **Decisions agreed:** 2026-10-17
-(Phase 2 review: 2026-10-22; Phase 3–6 checked against the code: 2026-10-22)
+(Phase 2 review: 2026-10-22; Phase 3–6 checked against the code: 2026-10-22;
+Phase 4 review: 2026-10-22)
 
 This is a self-paced, step-by-step plan for building the blog feature on top of
 the existing foundation (security, error handling, observability, V1 schema).
@@ -160,6 +161,29 @@ disagree, this section wins.
   `app.docs.public=true`** (on locally and in staging, off in prod). They get
   their own filter chain ahead of the public one. Otherwise they sit behind
   `PUBLIC_API_KEY` like everything else.
+
+### Caching
+
+- **D24 — Eviction keeps the cache correct; the TTL is only a safety net.**
+  Every admin write clears both public caches once its transaction commits.
+  Visibility doesn't depend on time (there's no scheduled publishing in v1), so
+  nothing else changes public output. The TTL is 1 hour: it only limits how
+  long a missed eviction (Redis down, a manual DB edit, a bug) can show stale
+  content. Accepted race: a public read that loads from Postgres just before a
+  write commits can store its old result after that write's eviction, and it
+  stays until the TTL (or the next admin write). The window is one read's
+  database time, and on a low-traffic blog with one author it's rare enough
+  not to justify a delayed second eviction; if it bites, save again or clear
+  the `blog-post-*` keys.
+- **D25 — The cache never fails a request.** If Redis is unreachable, the
+  error is logged at `warn` and the request reads from Postgres. An eviction
+  that fails while Redis is down can leave stale entries until the TTL (D24).
+- **D26 — A cached entry with the wrong shape is a cache miss.** A deploy
+  doesn't clear Redis. The cache's Jackson mapper fails on missing and unknown
+  properties, so after any change to a cached response record (a field added,
+  removed or renamed), old entries fail to read. That counts as a miss, logged
+  at `debug`: the request reads from Postgres and the fresh result overwrites
+  the entry. A deploy that doesn't change the shape keeps the cache warm.
 
 ### Frontend responsibilities (no API work, recorded for the Next.js side)
 
@@ -551,20 +575,68 @@ Tests ride along with each step, as in Phase 2: write the matching 5.3
 
 ## Phase 4 — Caching
 
-Goal: cache the public read paths; invalidate on admin writes. Redis is
-already a dependency and running via `compose.yaml`.
+Goal: cache the public read paths in Redis and evict on admin writes
+(D24–D26). Redis is already a dependency and running via `compose.yaml`.
 
-- [ ] **4.1 Enable Spring Cache**
-  `@EnableCaching` + Redis-backed `CacheManager` bean (or rely on Spring Boot
-  autoconfiguration with `spring.cache.type=redis`). Spring Boot 4 split cache
-  autoconfiguration into its own module, so add `spring-boot-starter-cache`
-  first; `spring-boot-starter-data-redis` alone doesn't bring it. Set a sensible default
-  TTL (e.g. 5 minutes) — this is a low-traffic personal blog, so correctness
-  after a publish matters more than hit rate.
+> Reviewed against the code and Boot 4.0 / Spring Data Redis 4.0 on
+> 2026-10-22, before starting. Changes from the first draft: `@EnableCaching`
+> is always needed (`spring.cache.type` alone enables nothing); evictions wait
+> for the commit; keys are explicit; the serializer uses Boot's mapper and
+> reads strictly (D26); the TTL is 1 hour, not 5 minutes (D24); new steps 4.4
+> (error handling) and 4.5 (Redis in the blog tests). The old 4.4 is now 4.6.
+>
+> Status 2026-10-22: 4.1–4.6 done. Full suite 203/203 green, Spotless and
+> SpotBugs clean, smoke script 38/38 with `-Seed`. Live check against the
+> compose stack: both caches fill (1-hour TTL), the detail key is gone as soon
+> as an admin edit returns, the next public read shows the edit, and Grafana
+> shows `cache_gets_total` hits and misses per cache.
+>
+> Deviations:
+> - No `transactionAware()`. Its deferred evictions run in the transaction's
+>   `afterCommit`, outside the `CacheErrorHandler`, so a failed one would fail
+>   an already-committed write with a 500 (against D25). Instead
+>   `@EnableCaching(order = HIGHEST_PRECEDENCE)` puts the caching advice
+>   outside the transaction advice: the eviction runs after the commit, through
+>   the error handler.
+> - Immediate cache writes (`RedisCacheWriter` with `immediateWrites()`):
+>   Spring Data Redis 4 writes asynchronously by default with Lettuce, so an
+>   eviction could still be running when the admin response went out, and a
+>   failed put or clear never reached the error handler.
+> - `opentelemetry-logback-appender` pinned to `2.21.0-alpha`, the release
+>   built on the OpenTelemetry API Boot 4.0.6 manages (1.55.0). Since May,
+>   `2.27.0-alpha` had thrown `NoSuchMethodError`
+>   (`LogRecordBuilder.setException`) on every log call that carried an
+>   exception, so any logged 500 or cache warning failed the request.
+>   `PostCacheRedisDownIntegrationTest` covers it.
+> - Cache tests show a cached response by changing the row straight in the
+>   database (no repository spy). Caches are cleared before each test by
+>   `ClearCachesTestExecutionListener`, registered on each Redis-backed class.
+> - The smoke script's `-Seed` also deletes the `blog-post-*` keys: the seed
+>   bypasses the admin API, and Redis outlives the app.
 
-- [ ] **4.2 `@Cacheable` on read methods**
-  Cache `listPublished` and `getPublished` from `PostQueryService`, keyed by
-  `(resolvedLocale, page, size)` / `(slug, resolvedLocale)` (D3).
+- [x] **4.1 Enable Spring Cache**
+  Add `spring-boot-starter-cache`: Boot 4 split cache autoconfiguration into
+  its own module, and `spring-boot-starter-data-redis` alone doesn't bring it.
+  `@EnableCaching` is required: Boot only configures a `CacheManager` when it's
+  present, and then detects Redis on its own. The app-wide parts go in
+  `shared` (`CacheConfig`): `@EnableCaching(order = HIGHEST_PRECEDENCE)`, so
+  an eviction runs after the admin write's transaction commits (an eviction
+  before the commit lets a public read cache the old data again until the
+  TTL); the error handler (4.4); and immediate cache writes (see the
+  deviations above). Properties: `spring.cache.redis.time-to-live=1h` (D24)
+  and `spring.cache.redis.enable-statistics=true` (4.6).
+
+- [x] **4.2 `@Cacheable` on read methods**
+  Two caches, named as constants in `blog`: `blog-post-list` for
+  `listPublished` and `blog-post-detail` for `getPublished` in
+  `PostQueryService`. The `blog-` prefix keeps them apart from anything else
+  in Redis later (for example the rate-limit counters in `project-plan.md`).
+  Write the keys out in SpEL: `locale:page:size` and `slug:locale`, from the
+  *resolved* locale (D3). The default key would use `Pageable.toString()`, which
+  includes the ignored `sort` (D4), so one page would be stored once per sort
+  value. `@EnableCaching` handles package-private methods in Spring 7, so the
+  service stays as it is. Exceptions are never cached: 404s always reach
+  Postgres.
   ⚠️ Cache the DTOs, never `Page`/`PageImpl` or entities — `PageImpl` has no
   default constructor and fails Jackson deserialization on Redis read, and
   entities drag lazy proxies into the serializer. `PostQueryService` already
@@ -572,19 +644,53 @@ already a dependency and running via `compose.yaml`.
   ⚠️ Boot 4 uses Jackson 3, so the `Jackson2` serializers are the wrong
   family, and a generic serializer with default typing doesn't work for
   records: they're final, so no type info is written and a read comes back as
-  a `LinkedHashMap` (`ClassCastException`). Give each cache its own typed
-  serializer (Spring Data Redis's Jackson 3 `JacksonJsonRedisSerializer` with
-  the exact `JavaType`, e.g. `PageResponse<PostSummaryResponse>`) through a
-  `RedisCacheManagerBuilderCustomizer`. Verify a cache **read** path in a
-  test, not just the write.
+  a `LinkedHashMap` (`ClassCastException`). Register both caches with
+  `withCacheConfiguration` in a `blog` `RedisCacheManagerBuilderCustomizer`,
+  each with its own Jackson 3 `JacksonJsonRedisSerializer` and the exact
+  `JavaType` (e.g. `PageResponse<PostSummaryResponse>`). Registering them up
+  front is also what gets them metrics: Boot only adds metrics for caches that
+  exist at startup. Build the serializer from Boot's `JsonMapper`, so cached
+  JSON matches the API's (`SupportedLocale`, `Instant`), and turn on
+  `FAIL_ON_MISSING_CREATOR_PROPERTIES` and `FAIL_ON_UNKNOWN_PROPERTIES` for
+  it. Every record field is a constructor argument, so an old entry with a
+  different shape fails to read instead of coming back with nulls (D26).
 
-- [ ] **4.3 `@CacheEvict` on writes**
-  Evict on every admin write that can change public output: publish,
-  unpublish, upsertTranslation (edits go live, D11), setTags, softDelete, and
-  tag changes. Simplest correct option: `allEntries = true` on the relevant
-  cache names — fine at this scale.
+- [x] **4.3 `@CacheEvict` on writes**
+  Every write method in `PostAdminService` and `TagAdminService` (anything not
+  `readOnly`) clears both caches with `allEntries = true`, including `create`
+  and `changeSlug`, which can't change public output today. One simple rule is
+  easier to keep correct than deciding method by method. Put it on the
+  methods, not the class: on the class it would also run on the admin reads
+  (`list`, `get`). A meta-annotation (`@EvictsPublicPosts`) keeps that short.
 
-- [ ] **4.4 Verify with logs/Grafana**
+- [x] **4.4 Cache error handling** (D25, D26)
+  A `CacheErrorHandler` (from `CachingConfigurer.errorHandler()` in
+  `shared.CacheConfig`) that never rethrows. A failed get counts as a miss:
+  Spring runs the method and the put overwrites the entry. A
+  `SerializationException` (an old shape, D26) is logged at `debug`; anything
+  else (Redis unreachable) at `warn`. A failed put, evict or clear is logged at
+  `warn`.
+
+- [x] **4.5 Redis in the blog tests**
+  `PostApiIntegrationTest`, `AdminPostApiIntegrationTest` and
+  `AdminTagApiIntegrationTest` import only `PostgresContainerConfiguration`,
+  so once caching is on their reads would try `localhost:6379`. Add a
+  `RedisContainerConfiguration` (`@ServiceConnection`) and import it there.
+  Clear every cache before each test (e.g. a `@BeforeEach` in a shared base or
+  a test execution listener): `blog-seed.sql` truncates the tables, not Redis,
+  so cached responses would leak between tests. The existing lifecycle tests
+  (publish → shows in the public list, unpublish → gone) then check eviction
+  end to end. New tests:
+  - a cache **read**: the second call is served from Redis and equals the
+    first, for both caches (e.g. `@MockitoSpyBean` on the repository sees one
+    call);
+  - an entry with an old shape (written straight into Redis) counts as a miss,
+    and the response comes from Postgres and replaces it;
+  - Redis unreachable → the public reads still return 200 (its own context,
+    with Redis pointed at a closed port, so it doesn't disturb the shared
+    container).
+
+- [x] **4.6 Verify with logs/Grafana**
   Confirm cache hits/misses show up and that publishing a post is reflected
   immediately. datasource-micrometer only shows the queries that ran; the
   `cache.gets` hit/miss metrics need `spring.cache.redis.enable-statistics=true`.

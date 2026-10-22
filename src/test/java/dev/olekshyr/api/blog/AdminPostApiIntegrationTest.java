@@ -12,7 +12,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
-import dev.olekshyr.api.PostgresContainerConfiguration;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -20,14 +19,10 @@ import java.util.Collections;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.context.bean.override.convention.TestBean;
-import org.springframework.test.context.jdbc.Sql;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -36,10 +31,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  * Admin post API against a real Postgres, seeded from blog-seed.sql. The
  * application clock is fixed, so server-set timestamps are exact.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-@Import(PostgresContainerConfiguration.class)
-@Sql("/blog-seed.sql")
+@BlogApiTest
 class AdminPostApiIntegrationTest {
 
   private static final String KEY_HEADER = "X-Api-Key";
