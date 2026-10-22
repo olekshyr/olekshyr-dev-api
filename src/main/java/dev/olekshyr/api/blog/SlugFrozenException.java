@@ -5,9 +5,9 @@ import dev.olekshyr.api.shared.ErrorCode;
 import org.springframework.http.HttpStatus;
 
 /** The slug is fixed once any translation has been published (D10). */
-public class SlugFrozenException extends ApiException {
+class SlugFrozenException extends ApiException {
 
-  public SlugFrozenException(String slug) {
+  SlugFrozenException(String slug) {
     super(
       ErrorCode.SLUG_FROZEN,
       HttpStatus.CONFLICT,

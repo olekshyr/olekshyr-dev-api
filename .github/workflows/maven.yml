@@ -22,8 +22,9 @@ jobs:
         java-version: '25'
         distribution: 'graalvm'
         cache: maven
+    # verify also runs the Spotless and SpotBugs checks
     - name: Build with Maven
-      run: mvn -B package --file pom.xml
+      run: ./mvnw -B verify
 
   # Submitting a dependency snapshot needs a write token, which pull_request
   # runs don't get, so the graph is only updated from the default branch.

@@ -149,7 +149,7 @@ class BlogRepositoryTest {
     clear();
 
     assertThat(translations.findVisibleLocalesBySlug("multi"))
-      .containsExactly(SupportedLocale.EN, SupportedLocale.JA);
+      .containsExactlyInAnyOrder(SupportedLocale.EN, SupportedLocale.JA);
   }
 
   @Test

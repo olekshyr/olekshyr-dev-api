@@ -46,10 +46,7 @@ class TagAdminService {
   @EvictsPublicPosts
   AdminTagResponse update(long id, UpsertTagRequest request) {
     Tag tag = find(id);
-    if (!request.slug().equals(tag.getSlug())) {
-      requireSlugAvailable(request.slug());
-      tag.changeSlug(request.slug());
-    }
+    tag.changeSlug(request.slug(), tags::existsBySlug);
     tag.changeColor(request.color());
     tag.replaceNames(request.names(), clock.instant());
     return respond(tag);

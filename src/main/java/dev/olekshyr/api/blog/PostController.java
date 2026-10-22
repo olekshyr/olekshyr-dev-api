@@ -47,11 +47,11 @@ class PostController {
     @Parameter(hidden = true) Pageable pageable,
     Locale locale
   ) {
-    return posts.listPublished(SupportedLocale.from(locale), pageable);
+    return posts.listVisible(SupportedLocale.from(locale), pageable);
   }
 
   @GetMapping("/{slug}")
   PostDetailResponse get(@PathVariable String slug, Locale locale) {
-    return posts.getPublished(slug, SupportedLocale.from(locale));
+    return posts.getVisible(slug, SupportedLocale.from(locale));
   }
 }

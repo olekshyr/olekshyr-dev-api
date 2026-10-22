@@ -31,7 +31,7 @@ class PostQueryService {
     key = "#locale.code() + ':' + #pageable.pageNumber + ':' + #pageable.pageSize",
     unless = "#result.content().isEmpty() && #pageable.pageNumber > 0"
   )
-  PageResponse<PostSummaryResponse> listPublished(
+  PageResponse<PostSummaryResponse> listVisible(
     SupportedLocale locale,
     Pageable pageable
   ) {
@@ -44,7 +44,7 @@ class PostQueryService {
     cacheNames = BlogCacheConfig.POST_DETAIL,
     key = "#slug + ':' + #locale.code()"
   )
-  PostDetailResponse getPublished(String slug, SupportedLocale locale) {
+  PostDetailResponse getVisible(String slug, SupportedLocale locale) {
     List<SupportedLocale> availableLocales = translations
       .findVisibleLocalesBySlug(slug)
       .stream()

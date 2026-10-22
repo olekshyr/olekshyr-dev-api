@@ -38,7 +38,7 @@ Supported locales: `en` (default), `uk`, `ja`. No language fallback.
 | `deleted_at` | `TIMESTAMPTZ` | yes | `NULL` | soft delete; non-null = hidden from public |
 
 - No `status` / `published_at` column — publishing is per-translation.
-- `cover_image` is deliberately omitted. The PRD defers it to Phase 4 as a
+- `cover_image` is deliberately omitted. The PRD defers it to its Phase 4 (the media upload pipeline, not the blog plan's Phase 4) as a
   nullable, non-breaking migration once the media-upload pipeline exists.
 
 ### `post_translations` — per-locale content + publish state
@@ -73,7 +73,7 @@ Supported locales: `en` (default), `uk`, `ja`. No language fallback.
 
 - No soft delete. A tag is hard-deletable only when unassigned; deletion while
   it is assigned to one or more posts is blocked by the `post_tags` FK
-  (`ON DELETE RESTRICT`) and surfaced as a validation error by the API.
+  (`ON DELETE RESTRICT`); the API checks first and returns `409 TAG_IN_USE`.
 
 ### `tag_translations` — per-locale tag names
 
@@ -165,7 +165,7 @@ erDiagram
 ## Derived / deferred (documented, not columns)
 
 - `read_time` — derived from the `body` word count (200 wpm); never stored.
-- `cover_image` — deferred to Phase 4 (nullable, non-breaking migration later).
+- `cover_image` — deferred until the media upload pipeline exists (nullable, non-breaking migration later).
 - `hreflang` links and the schema.org `Article` JSON-LD block — assembled by
   Next.js from the available translations; no DB column.
 
