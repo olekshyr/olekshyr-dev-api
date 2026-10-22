@@ -1,7 +1,7 @@
 # Blog Feature — Implementation Plan
 
 **Status:** In progress · **Date:** 2026-06-11 · **Decisions agreed:** 2026-10-17
-(Phase 2 review: 2026-10-22)
+(Phase 2 review: 2026-10-22; Phase 3–6 checked against the code: 2026-10-22)
 
 This is a self-paced, step-by-step plan for building the blog feature on top of
 the existing foundation (security, error handling, observability, V1 schema).
@@ -94,7 +94,9 @@ disagree, this section wins.
 - **D10 — Slug:** the admin UI suggests it from the English title. The API only
   validates the format (`^[a-z0-9]+(-[a-z0-9]+)*$`) and uniqueness
   (`409 DUPLICATE_SLUG`). It can change freely until the post is first
-  published in any locale; after that a change returns `409 SLUG_FROZEN`. There
+  published in any locale; after that a change returns `409 SLUG_FROZEN`.
+  Saving the slug the post already has is a no-op, never `DUPLICATE_SLUG` or
+  `SLUG_FROZEN`, so the editor can resend the whole form. There
   are no redirects in v1. A deleted post's slug stays reserved forever (the DB
   unique constraint already covers deleted rows).
 - **D11 — Edits to a published translation go live on save.** There's no
@@ -109,13 +111,19 @@ disagree, this section wins.
   is returned by admin endpoints only.
 - **D14 — Fine-grained writes,** one call per admin UI action (each locale tab
   saves on its own). `PUT` replaces the whole resource, with no partial
-  updates. See 3.4 for the endpoint list.
+  updates. See 3.5 for the endpoint list.
 - **D15 — Admin reads ignore `Accept-Language` for content.** They always
   return every translation, and every tag name with its locale.
   `Accept-Language` only picks the language of error messages.
 - **D16 — Admin list:** paginated (D4), sorted by `updatedAt` descending,
-  deleted posts hidden unless `?deleted=true`. Each row has id, slug, each
-  translation's status and `updatedAt`.
+  deleted posts hidden unless `?deleted=true` (which includes them alongside
+  the rest). Each row has id, slug, `deletedAt`, each translation's status and
+  `updatedAt`.
+- **D23 — Deleted posts on the admin side:** `GET /{id}` still returns a
+  deleted post, with `deletedAt` set, so rows from `?deleted=true` open.
+  Every write to it returns `404 NOT_FOUND`, because a deleted post can't come
+  back (D12). `DELETE` is idempotent: deleting again returns 204 and keeps the
+  original `deletedAt`.
 
 ### Errors
 
@@ -140,7 +148,11 @@ disagree, this section wins.
 - **D21 — Error-mapping module boundary:** `shared` defines an abstract
   `ApiException(ErrorCode, HttpStatus)`; every domain exception extends it and
   one handler maps the base class. Dependencies run `blog → shared` only, and
-  `ErrorCode` stays the single list of the error contract.
+  `ErrorCode` stays the single list of the error contract. `ApiException` can
+  carry optional field `details`, so checks the service makes (D9 publish
+  requirements, unknown tag slugs) return `400 VALIDATION_FAILED` with the same
+  per-field shape as Bean Validation. Field codes: `NOT_BLANK` for a missing
+  field (the code `@NotBlank` already produces) and `UNKNOWN_TAG`.
 
 ### API docs
 
@@ -195,7 +207,7 @@ schema. No endpoints yet — verify with `@DataJpaTest` against TestContainers.
   Use an `AttributeConverter<Locale, String>` (`autoApply = true`) that
   lower-cases on write and upper-cases on read. The `{locale}` path segment in
   admin URLs needs a separate case-insensitive Spring `Converter<String,
-  SupportedLocale>` (Phase 3).
+  SupportedLocale>` (Phase 3, step 3.0).
 
 - [x] **1.2 `Tag` + `TagTranslation` entities**
   Start here — simplest pair, no publishing logic. `Tag` has `id`, `slug`,
@@ -377,71 +389,163 @@ test. It never goes through Flyway, so it can't reach prod.
 Goal: create/edit/publish posts and manage tags via `/api/v1/admin/**`
 (admin filter chain, `ADMIN_API_KEY`). Posts are addressed by numeric id (D13).
 
-- [ ] **3.1 HTML sanitization**
-  Add OWASP Java HTML Sanitizer dependency. Create a `BodySanitizer`
-  component with a policy allowing the basic blog-content tags (p, headings,
-  lists, links, images, code/pre, blockquote, etc.), compatible with what
-  CKEditor emits. Unit test with a `<script>` injection payload to confirm
-  it's stripped.
+> Checked against the Phase 1–2 code on 2026-10-22, before starting. Added
+> 3.0 (error details, entity fixes, locale path converter) and 3.3 (admin
+> response DTOs), which the first draft left out; the later steps were
+> renumbered.
+>
+> Status 2026-10-22: 3.0–3.7 done. Full suite 183/183 green, SpotBugs clean,
+> smoke script 38/38 with `-Seed` (it now runs the 3.7 admin lifecycle).
+>
+> Deviations:
+> - Time comes from one injected `java.time.Clock` bean (`shared.ClockConfig`):
+>   JPA auditing, publish, soft delete and the error envelope's `timestamp` all
+>   read it, and entity methods that change content take `Instant now`
+>   explicitly. Tests replace it with a fixed clock (`@TestBean`). It ticks in
+>   microseconds, the precision Postgres stores: with `Instant.now()`'s
+>   nanoseconds, a write's response showed a different `publishedAt` than a
+>   later read.
+> - `GET /api/v1/admin/tags/{id}` added, so `Location` from `POST` resolves.
+> - `UNKNOWN_TAG` details name the request position: `tagSlugs[1]`.
+> - Field-level codes live in `shared.FieldErrorCode` (keys
+>   `error.field.*`), checked by `ErrorCodeMessagesTest` like `ErrorCode`.
+> - Figure classes are checked token by token (`image…`/`table…`): a single
+>   regex with nested repetition tripped SpotBugs' ReDoS check.
+> - Owasp sanitizer pinned to `20260924.2`.
 
-- [ ] **3.2 Admin request DTOs + validation**
+Tests ride along with each step, as in Phase 2: write the matching 5.3
+`MockMvc` cases and 5.4 unit tests as you go.
+
+- [x] **3.0 Error details, entity fixes, locale path converter**
+  - `ApiException` gets optional `details` (`List<ApiFieldError>`), and
+    `handleApiException` passes them into the envelope (D21). Detail
+    `message`s resolve through `MessageSource` like the top-level message:
+    add `error.field.not_blank` and `error.field.unknown_tag` to all three
+    message files.
+  - Move the entity exceptions onto `ApiException` (D21):
+    `PublishRequirementsNotMetException` → `400 VALIDATION_FAILED`, one
+    `NOT_BLANK` detail per missing field (D9); `TranslationNotFoundException`
+    → `404 NOT_FOUND`; `PostDeletedException` → `404 NOT_FOUND` (D23);
+    `SlugFrozenException` → `409 SLUG_FROZEN`. Add the `ErrorCode`s
+    `DUPLICATE_SLUG`, `SLUG_FROZEN` and `TAG_IN_USE` with keys in all three
+    files (D17).
+  - `Post.changeSlug`: an unchanged slug returns before the frozen check
+    (D10).
+  - `Post.softDelete`: keep the first `deletedAt` (D23).
+  - `Post.translations` gets `@BatchSize(size = 50)` like `tags`; without it
+    the admin list (D16) loads translations one post at a time.
+  - `Tag`: add `changeSlug(slug)` and `replaceNames(Map<SupportedLocale,
+    String>)`, which renames existing rows in place (`putName`) and removes
+    the locales missing from the map (orphan removal deletes them). Never
+    remove a locale's row and re-add it in the same save: Hibernate flushes
+    inserts before deletes, so the new row would hit `uq_tag_locale`.
+  - Case-insensitive `Converter<String, SupportedLocale>` for the `{locale}`
+    path segment, registered in `LocaleConfig` (`shared`, next to
+    `SupportedLocale`). An unknown value like `fr` becomes a type mismatch →
+    `400 VALIDATION_FAILED` (D20).
+
+- [x] **3.1 HTML sanitization**
+  Add the OWASP Java HTML Sanitizer dependency. Create a `BodySanitizer`
+  component whose policy allows what CKEditor 5 emits for blog content: `p`,
+  headings, lists, `a`, `img`, `figure`/`figcaption`, tables, `blockquote`,
+  `pre`/`code` (with `class="language-*"` on `code` for syntax highlighting),
+  inline formatting. Images allow only `https` sources; links get
+  `rel="nofollow noopener noreferrer"`. Only `body` is HTML: `title`,
+  `excerpt` and the meta fields are plain text the frontend escapes. Unit
+  test with a `<script>` payload, an `onerror` attribute and a
+  `javascript:` link to confirm they're stripped, and a CKEditor sample to
+  confirm it survives.
+
+- [x] **3.2 Admin request DTOs + validation**
   `CreatePostRequest` (slug), `UpdatePostRequest` (slug),
   `SetPostTagsRequest` (tag slugs), `UpsertTranslationRequest` (title,
   excerpt, body, metaTitle, metaDescription), `UpsertTagRequest` (slug, color,
   names per locale). Use Bean Validation (`@NotBlank`, `@Size` matching the
   column lengths, `@Pattern` for slug format and `#RRGGBB` color); these flow
-  through the existing `VALIDATION_FAILED` path.
+  through the existing `VALIDATION_FAILED` path. `body` is `TEXT`, so cap it
+  with `@Size` (e.g. 200 000 characters) to reject runaway payloads.
+  If `UpsertTagRequest.names` is a `Map<SupportedLocale, String>`, test that
+  the lowercase keys (`"en"`) deserialize: `@JsonValue` may not apply to map
+  keys. If it doesn't, use a record with one field per locale instead.
 
-- [ ] **3.3 `PostAdminService`**
+- [x] **3.3 Admin response DTOs**
+  Records, with ids (D13) and every locale's content (D15):
+  - `AdminPostResponse`: id, slug, createdAt, updatedAt, deletedAt, tags (as
+    `AdminTagResponse`), and translations in `en, uk, ja` order (D18), each
+    with locale, title, excerpt, body, metaTitle (raw, no D7 fallback),
+    metaDescription, status, publishedAt and updatedAt. Every post write
+    returns it, so each locale tab can refresh all statuses.
+  - `AdminPostListItem` (D16): id, slug, updatedAt, deletedAt, and per
+    translation its locale, status and updatedAt.
+  - `AdminTagResponse`: id, slug, color, and every name with its locale.
+
+- [x] **3.4 `PostAdminService`**
+  All methods `@Transactional`; any unique-constraint race surfaces at commit
+  as `DataIntegrityViolationException` → `409 CONFLICT` (3.6).
   - `create(slug)` → creates a `Post` with no translations. Pre-check
     `existsBySlug` → `409 DUPLICATE_SLUG` (D10).
-  - `changeSlug(id, slug)` → `409 SLUG_FROZEN` once published in any locale,
-    `409 DUPLICATE_SLUG` if taken (D10).
+  - `changeSlug(id, slug)` → no-op if unchanged; otherwise `409 SLUG_FROZEN`
+    once published in any locale, `409 DUPLICATE_SLUG` if taken (D10).
   - `upsertTranslation(id, locale, dto)` → create-or-replace, running `body`
     through `BodySanitizer`. Live immediately if published (D11).
-  - `publish(id, locale)` → D9 checks, `status = PUBLISHED`, `published_at`
-    set only if null (D8).
+  - `publish(id, locale)` → D9 checks (`400` with details, 3.0),
+    `status = PUBLISHED`, `published_at` set only if null (D8).
   - `unpublish(id, locale)` → `status = DRAFT`, `published_at` kept (D8).
-  - For both: no translation row in that locale (the existing
-    `TranslationNotFoundException`) → `404 NOT_FOUND`. It and the other
-    entity exceptions extend `ApiException` (D21).
-  - `softDelete(id)` → sets `posts.deleted_at = now()`.
-  - `setTags(id, tagSlugs)` → replaces the tag set; unknown tag slug → 400.
-  - `list(pageable, includeDeleted)` and `get(id)` (draft preview: every
-    translation, any status) — D15/D16.
+  - For both: no translation row in that locale → `404 NOT_FOUND`.
+  - `softDelete(id)` → sets `posts.deleted_at`; idempotent (D23).
+  - `setTags(id, tagSlugs)` → replaces the tag set. Unknown tag slugs →
+    `400 VALIDATION_FAILED`, one `UNKNOWN_TAG` detail per unknown slug.
+  - Writes to a deleted post → `404 NOT_FOUND` (D23); an unknown id →
+    `404 NOT_FOUND`.
+  - `list(pageable, includeDeleted)` → fixed sort `updatedAt DESC, id DESC`,
+    `?sort` ignored (D4, D16); needs a repository method that includes
+    deleted posts next to `findByDeletedAtIsNull`. `get(id)` (draft preview:
+    every translation, any status) also returns deleted posts (D23).
 
-- [ ] **3.4 `PostAdminController`** — under `/api/v1/admin/posts`:
+- [x] **3.5 `PostAdminController`** — under `/api/v1/admin/posts`:
   | Method & path | Action | Response |
   |---|---|---|
-  | `GET /?page&size&deleted` | admin list (D16) | 200 page |
-  | `GET /{id}` | draft preview, all translations | 200 |
-  | `POST /` | create | 201 + `Location` |
-  | `PUT /{id}` | change slug | 200 |
+  | `GET /?page&size&deleted` | admin list (D16) | 200 page of `AdminPostListItem` |
+  | `GET /{id}` | draft preview, all translations | 200 `AdminPostResponse` |
+  | `POST /` | create | 201 + `Location` + `AdminPostResponse` |
+  | `PUT /{id}` | change slug | 200 `AdminPostResponse` |
   | `DELETE /{id}` | soft delete | 204 |
-  | `PUT /{id}/tags` | replace tags | 200 |
-  | `PUT /{id}/translations/{locale}` | create/replace translation | 200 |
-  | `POST /{id}/translations/{locale}/publish` | publish | 200 |
-  | `POST /{id}/translations/{locale}/unpublish` | unpublish | 200 |
+  | `PUT /{id}/tags` | replace tags | 200 `AdminPostResponse` |
+  | `PUT /{id}/translations/{locale}` | create/replace translation | 200 `AdminPostResponse` |
+  | `POST /{id}/translations/{locale}/publish` | publish | 200 `AdminPostResponse` |
+  | `POST /{id}/translations/{locale}/unpublish` | unpublish | 200 `AdminPostResponse` |
 
-- [ ] **3.5 `TagAdminController`** — under `/api/v1/admin/tags`:
-  `GET /` (all tags, all names), `POST /` (201), `PUT /{id}` (replace slug,
+- [x] **3.6 `TagAdminService` + `TagAdminController`** — under
+  `/api/v1/admin/tags`: `GET /` (all tags as `AdminTagResponse`, sorted by
+  slug, not paginated: it's a small fixed vocabulary), `GET /{id}` (where
+  `Location` points), `POST /` (201 + `Location`), `PUT /{id}` (replace slug,
   color and names), `DELETE /{id}` (204).
-  ⚠️ Don't blanket-map `DataIntegrityViolationException` → `TAG_IN_USE` in
-  `GlobalExceptionHandler` — every unique-constraint violation (duplicate
-  slug, duplicate tag name) throws the same exception, and they'd all get
-  mislabeled. Instead, pre-check in the service (count `post_tags` rows for
-  the tag) and throw a domain `TagInUseException` (an `ApiException`, D21)
-  mapped to 409 `TAG_IN_USE`.
-  Keep the FK `ON DELETE RESTRICT` as the race-condition backstop, and add a
-  generic `DataIntegrityViolationException` → 409 `CONFLICT` handler as the
-  fallback.
+  - Tag slugs use the D10 format; pre-check `existsBySlug` →
+    `409 DUPLICATE_SLUG` (an unchanged slug is fine). A duplicate tag name in
+    a locale (`uq_tag_name_locale`) has no dedicated code in v1 and falls
+    through to the generic `409 CONFLICT`.
+  - ⚠️ Don't blanket-map `DataIntegrityViolationException` → `TAG_IN_USE` in
+    `GlobalExceptionHandler` — every unique-constraint violation (duplicate
+    slug, duplicate tag name) throws the same exception, and they'd all get
+    mislabeled. Instead, pre-check in the service (`countPostsUsing`) and
+    throw a domain `TagInUseException` (an `ApiException`, D21) mapped to 409
+    `TAG_IN_USE`.
+  - `countPostsUsing` also counts deleted posts, matching the FK: deleted
+    posts keep their tags, so a tag used only by deleted posts still returns
+    `TAG_IN_USE`. Accepted for v1.
+  - Keep the FK `ON DELETE RESTRICT` as the race-condition backstop, and add a
+    generic `DataIntegrityViolationException` → 409 `CONFLICT` handler as the
+    fallback. It's not a Spring MVC exception, so a plain `@ExceptionHandler`
+    is fine (D20's warning doesn't apply).
 
-- [ ] **3.6 Manual smoke test**
+- [x] **3.7 Manual smoke test**
   Full lifecycle via `curl` with `ADMIN_API_KEY`: create post → add `en`
-  translation → publish → confirm it appears in the public list → try to
-  change the slug (expect 409) → unpublish → confirm it disappears → publish
-  again (same `publishedAt`) → soft-delete → confirm it's gone and the slug
-  can't be reused.
+  translation → publish → confirm it appears in the public list → resend the
+  same slug (expect 200) → change the slug (expect 409) → unpublish → confirm
+  it disappears → publish again (same `publishedAt`) → soft-delete → confirm
+  it's gone and the slug can't be reused → `GET /{id}` still shows it with
+  `deletedAt` → a write to it returns 404 → deleting again returns 204 with
+  the same `deletedAt`.
 
 ---
 
@@ -452,7 +556,9 @@ already a dependency and running via `compose.yaml`.
 
 - [ ] **4.1 Enable Spring Cache**
   `@EnableCaching` + Redis-backed `CacheManager` bean (or rely on Spring Boot
-  autoconfiguration with `spring.cache.type=redis`). Set a sensible default
+  autoconfiguration with `spring.cache.type=redis`). Spring Boot 4 split cache
+  autoconfiguration into its own module, so add `spring-boot-starter-cache`
+  first; `spring-boot-starter-data-redis` alone doesn't bring it. Set a sensible default
   TTL (e.g. 5 minutes) — this is a low-traffic personal blog, so correctness
   after a publish matters more than hit rate.
 
@@ -462,10 +568,15 @@ already a dependency and running via `compose.yaml`.
   ⚠️ Cache the DTOs, never `Page`/`PageImpl` or entities — `PageImpl` has no
   default constructor and fails Jackson deserialization on Redis read, and
   entities drag lazy proxies into the serializer. `PostQueryService` already
-  returns the `PageResponse<T>` record (D4, Phase 2), so cache that. Configure
-  `GenericJackson2JsonRedisSerializer` (or register the records with the
-  default typing) and verify a cache **read** path in a test, not just the
-  write.
+  returns the `PageResponse<T>` record (D4, Phase 2), so cache that.
+  ⚠️ Boot 4 uses Jackson 3, so the `Jackson2` serializers are the wrong
+  family, and a generic serializer with default typing doesn't work for
+  records: they're final, so no type info is written and a read comes back as
+  a `LinkedHashMap` (`ClassCastException`). Give each cache its own typed
+  serializer (Spring Data Redis's Jackson 3 `JacksonJsonRedisSerializer` with
+  the exact `JavaType`, e.g. `PageResponse<PostSummaryResponse>`) through a
+  `RedisCacheManagerBuilderCustomizer`. Verify a cache **read** path in a
+  test, not just the write.
 
 - [ ] **4.3 `@CacheEvict` on writes**
   Evict on every admin write that can change public output: publish,
@@ -474,8 +585,9 @@ already a dependency and running via `compose.yaml`.
   cache names — fine at this scale.
 
 - [ ] **4.4 Verify with logs/Grafana**
-  Confirm cache hits/misses show up (datasource-micrometer is already wired)
-  and that publishing a post is reflected immediately.
+  Confirm cache hits/misses show up and that publishing a post is reflected
+  immediately. datasource-micrometer only shows the queries that ran; the
+  `cache.gets` hit/miss metrics need `spring.cache.redis.enable-statistics=true`.
 
 ---
 
@@ -500,11 +612,16 @@ Goal: lock in behavior with TestContainers-backed integration tests
   slug order, `POST /api/v1/posts` → 405 `UNSUPPORTED_REQUEST`,
   missing/invalid `PUBLIC_API_KEY` → 401.
 
-- [ ] **5.3 Admin API integration tests**
+- [ ] **5.3 Admin API integration tests** (written alongside Phase 3; this
+  step is the completeness check)
   Full create → translate → publish → unpublish → re-publish (same
   `publishedAt`) → tag → soft-delete lifecycle. Publish without excerpt →
-  `VALIDATION_FAILED` with field details. Slug frozen after publish, slug of a
-  deleted post not reusable, tag in use can't be deleted. Error messages
+  `VALIDATION_FAILED` with a `NOT_BLANK` detail per missing field; unknown tag
+  slug → `UNKNOWN_TAG` detail. Slug frozen after publish, resending the same
+  slug is a 200 no-op, slug of a deleted post not reusable, tag in use can't
+  be deleted. Deleted post: `GET /{id}` → 200 with `deletedAt`, writes → 404,
+  second `DELETE` → 204 with the same `deletedAt` (D23). Unknown `{locale}`
+  segment → 400, uppercase `EN` accepted. Error messages
   localized for `uk` and `ja`. Wrong/missing `ADMIN_API_KEY` → 403.
   Cross-tier check: a valid `PUBLIC_API_KEY` against an admin route → 403.
 
@@ -526,10 +643,15 @@ Goal: lock in behavior with TestContainers-backed integration tests
   an `apiKey` security scheme (header `X-API-Key`) so the Authorize button
   works — without it every "Try it out" call 401s. Document `Accept-Language`
   on public endpoints and list every error `code` (D17: they're the contract).
-- [ ] **6.2 Error message keys** — every new `ErrorCode` has keys in
+  This is the frontend's integration reference, so document every parameter,
+  request and response field (with the formats, limits and fallbacks from the
+  decisions above), header, error `code` and field-level `code` on each
+  endpoint, public and admin. Done after Phase 3 is implemented.
+- [x] **6.2 Error message keys** — every new `ErrorCode` has keys in
   `messages.properties`, `messages_uk.properties` and `messages_ja.properties`.
-  Consider a unit test that fails if any `ErrorCode` key is missing from any
-  of the three files.
+  Done in Phase 2: `ErrorCodeMessagesTest` fails if any `ErrorCode` key is
+  missing from any of the three files. It doesn't cover the field-detail keys
+  added in 3.0 (`error.field.*`); extend it when they land.
 - [ ] **6.3 ADR** — if the caching strategy or sanitization policy involved a
   non-obvious tradeoff, write an ADR following the existing
   `docs/adr/ADR-001` format.

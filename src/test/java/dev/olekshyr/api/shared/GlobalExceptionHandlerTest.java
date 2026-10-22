@@ -9,10 +9,17 @@ import dev.olekshyr.api.security.SecurityConfig;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
@@ -32,6 +39,7 @@ import org.springframework.web.server.ResponseStatusException;
   {
     SecurityConfig.class,
     GlobalExceptionHandler.class,
+    GlobalExceptionHandlerTest.FixedClock.class,
     GlobalExceptionHandlerTest.TestController.class,
   }
 )
@@ -44,8 +52,26 @@ import org.springframework.web.server.ResponseStatusException;
 )
 class GlobalExceptionHandlerTest {
 
+  private static final Instant NOW = Instant.parse("2026-03-01T12:00:00Z");
+
   @Autowired
   private MockMvc mockMvc;
+
+  @TestConfiguration(proxyBeanMethods = false)
+  static class FixedClock {
+
+    @Bean
+    Clock clock() {
+      return Clock.fixed(NOW, ZoneOffset.UTC);
+    }
+  }
+
+  @Test
+  void timestampComesFromTheApplicationClock() throws Exception {
+    mockMvc
+      .perform(get("/does/not/exist").header("X-API-Key", "pub-key"))
+      .andExpect(jsonPath("$.timestamp").value("2026-03-01T12:00:00Z"));
+  }
 
   @Test
   void validationError_returns400WithDetails() throws Exception {
@@ -132,6 +158,33 @@ class GlobalExceptionHandlerTest {
         jsonPath("$.message")
           .value("この記事はリクエストされた言語では公開されていません。")
       );
+  }
+
+  @Test
+  void apiExceptionWithViolations_returnsLocalizedDetails() throws Exception {
+    mockMvc
+      .perform(
+        get("/test/api-exception-details")
+          .header("X-API-Key", "pub-key")
+          .header("Accept-Language", "uk")
+      )
+      .andExpect(status().isBadRequest())
+      .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+      .andExpect(jsonPath("$.details.length()").value(1))
+      .andExpect(jsonPath("$.details[0].field").value("excerpt"))
+      .andExpect(jsonPath("$.details[0].code").value("NOT_BLANK"))
+      .andExpect(
+        jsonPath("$.details[0].message").value("Поле не може бути порожнім.")
+      );
+  }
+
+  @Test
+  void dataIntegrityViolation_returns409Conflict() throws Exception {
+    mockMvc
+      .perform(get("/test/integrity").header("X-API-Key", "pub-key"))
+      .andExpect(status().isConflict())
+      .andExpect(jsonPath("$.code").value("CONFLICT"))
+      .andExpect(jsonPath("$.details").doesNotExist());
   }
 
   @Test
@@ -222,6 +275,18 @@ class GlobalExceptionHandlerTest {
     }
   }
 
+  static class MissingExcerptException extends ApiException {
+
+    MissingExcerptException() {
+      super(
+        ErrorCode.VALIDATION_FAILED,
+        HttpStatus.BAD_REQUEST,
+        "missing excerpt",
+        List.of(new FieldViolation("excerpt", FieldErrorCode.NOT_BLANK))
+      );
+    }
+  }
+
   @RestController
   static class TestController {
 
@@ -240,6 +305,16 @@ class GlobalExceptionHandlerTest {
     @GetMapping("/test/api-exception")
     ResponseEntity<Void> apiException() {
       throw new NotAvailableException();
+    }
+
+    @GetMapping("/test/api-exception-details")
+    ResponseEntity<Void> apiExceptionDetails() {
+      throw new MissingExcerptException();
+    }
+
+    @GetMapping("/test/integrity")
+    ResponseEntity<Void> integrity() {
+      throw new DataIntegrityViolationException("duplicate key");
     }
 
     @GetMapping("/test/status/{code}")

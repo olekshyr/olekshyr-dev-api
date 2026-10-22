@@ -1,5 +1,6 @@
 package dev.olekshyr.api.shared;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
@@ -23,6 +24,22 @@ public enum SupportedLocale {
 
   public Locale toLocale() {
     return Locale.forLanguageTag(code());
+  }
+
+  /**
+   * Strict lookup for locales the client names explicitly: the admin
+   * {@code {locale}} path segment and locale keys in request bodies. Case
+   * doesn't matter; an unsupported code is rejected, never defaulted.
+   */
+  @JsonCreator
+  public static SupportedLocale fromCode(String code) {
+    return Arrays
+      .stream(values())
+      .filter(l -> l.code().equalsIgnoreCase(code))
+      .findFirst()
+      .orElseThrow(() ->
+        new IllegalArgumentException("Unsupported locale: " + code)
+      );
   }
 
   /** Matches on language only; anything unsupported maps to the default. */
