@@ -1,13 +1,14 @@
 package dev.olekshyr.api.shared;
 
 import io.opentelemetry.api.trace.Span;
-import java.time.Instant;
+import java.time.Clock;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.Nullable;
 import org.springframework.context.MessageSource;
 import org.springframework.context.i18n.LocaleContextHolder;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -32,15 +33,48 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
   private static final String ALL_ZEROS_TRACE_ID = "0".repeat(32);
 
   private final MessageSource messageSource;
+  private final Clock clock;
 
   @ExceptionHandler(ApiException.class)
   ResponseEntity<Object> handleApiException(
     ApiException ex,
     WebRequest request
   ) {
+    List<ApiFieldError> details = ex
+      .violations()
+      .stream()
+      .map(v -> new ApiFieldError(v.field(), v.code().name(), message(v.code()))
+      )
+      .toList();
     return ResponseEntity
       .status(ex.status())
-      .body(buildResponse(ex.errorCode(), request, null));
+      .body(
+        buildResponse(
+          ex.errorCode(),
+          request,
+          details.isEmpty() ? null : details
+        )
+      );
+  }
+
+  /**
+   * Fallback for unique-constraint races the services' pre-checks miss (a
+   * duplicate slug committed in between) and constraints without a dedicated
+   * code, such as a duplicate tag name in a locale.
+   */
+  @ExceptionHandler(DataIntegrityViolationException.class)
+  ResponseEntity<Object> handleDataIntegrityViolation(
+    DataIntegrityViolationException ex,
+    WebRequest request
+  ) {
+    log.warn(
+      "Constraint violation for path {}: {}",
+      path(request),
+      ex.getMostSpecificCause().getMessage()
+    );
+    return ResponseEntity
+      .status(HttpStatus.CONFLICT)
+      .body(buildResponse(ErrorCode.CONFLICT, request, null));
   }
 
   @ExceptionHandler(Exception.class)
@@ -158,11 +192,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     WebRequest request,
     @Nullable List<ApiFieldError> details
   ) {
-    String message = messageSource.getMessage(
-      errorCode.messageKey(),
-      null,
-      LocaleContextHolder.getLocale()
-    );
+    String message = message(errorCode.messageKey());
 
     String spanTraceId = Span.current().getSpanContext().getTraceId();
     String traceId = ALL_ZEROS_TRACE_ID.equals(spanTraceId)
@@ -172,11 +202,19 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     return new ApiErrorResponse(
       errorCode.name(),
       message,
-      Instant.now(),
+      clock.instant(),
       path(request),
       traceId,
       details
     );
+  }
+
+  private String message(FieldErrorCode code) {
+    return message(code.messageKey());
+  }
+
+  private String message(String key) {
+    return messageSource.getMessage(key, null, LocaleContextHolder.getLocale());
   }
 
   /**

@@ -11,7 +11,7 @@ import java.util.Properties;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-/** Every error code needs a message in every supported locale (D17). */
+/** Every error code, top-level and field-level, needs a message in every supported locale (D17). */
 class ErrorCodeMessagesTest {
 
   @ParameterizedTest
@@ -24,6 +24,21 @@ class ErrorCodeMessagesTest {
     Properties messages = load(file);
 
     assertThat(Arrays.stream(ErrorCode.values()).map(ErrorCode::messageKey))
+      .allSatisfy(key -> assertThat(messages.getProperty(key)).isNotBlank());
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+    strings = {
+      "messages.properties", "messages_uk.properties", "messages_ja.properties",
+    }
+  )
+  void everyFieldErrorCodeHasAMessage(String file) throws IOException {
+    Properties messages = load(file);
+
+    assertThat(
+      Arrays.stream(FieldErrorCode.values()).map(FieldErrorCode::messageKey)
+    )
       .allSatisfy(key -> assertThat(messages.getProperty(key)).isNotBlank());
   }
 

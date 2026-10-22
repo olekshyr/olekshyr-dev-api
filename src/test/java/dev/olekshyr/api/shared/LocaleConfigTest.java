@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
     SecurityConfig.class,
     LocaleConfig.class,
     GlobalExceptionHandler.class,
+    ClockConfig.class,
     LocaleConfigTest.TestController.class,
   }
 )

@@ -49,7 +49,7 @@ class BlogRepositoryTest {
 
   private Post savePost(String slug, SupportedLocale locale, int daysOffset) {
     Post post = new Post(slug);
-    post.putTranslation(locale, content(slug));
+    post.putTranslation(locale, content(slug), BASE);
     post.publish(locale, BASE.plusSeconds(daysOffset * 86400L));
     return posts.saveAndFlush(post);
   }
@@ -66,10 +66,10 @@ class BlogRepositoryTest {
     savePost("middle", SupportedLocale.EN, 2);
     savePost("ukrainian", SupportedLocale.UK, 4);
     Post draft = new Post("draft");
-    draft.putTranslation(SupportedLocale.EN, content("draft"));
+    draft.putTranslation(SupportedLocale.EN, content("draft"), BASE);
     posts.save(draft);
     Post unpublished = savePost("unpublished", SupportedLocale.EN, 5);
-    unpublished.unpublish(SupportedLocale.EN);
+    unpublished.unpublish(SupportedLocale.EN, BASE);
     clear();
 
     Page<PostTranslation> page = translations.findVisibleIn(
@@ -140,9 +140,9 @@ class BlogRepositoryTest {
   @Test
   void availableLocalesListOnlyPublishedTranslations() {
     Post post = new Post("multi");
-    post.putTranslation(SupportedLocale.EN, content("en"));
-    post.putTranslation(SupportedLocale.UK, content("uk"));
-    post.putTranslation(SupportedLocale.JA, content("ja"));
+    post.putTranslation(SupportedLocale.EN, content("en"), BASE);
+    post.putTranslation(SupportedLocale.UK, content("uk"), BASE);
+    post.putTranslation(SupportedLocale.JA, content("ja"), BASE);
     post.publish(SupportedLocale.EN, BASE);
     post.publish(SupportedLocale.JA, BASE);
     posts.saveAndFlush(post);
@@ -182,8 +182,8 @@ class BlogRepositoryTest {
     tag.putName(SupportedLocale.EN, "Java");
     tags.saveAndFlush(tag);
     Post post = new Post("with-tags");
-    post.putTranslation(SupportedLocale.EN, content("t"));
-    post.replaceTags(Set.of(tag));
+    post.putTranslation(SupportedLocale.EN, content("t"), BASE);
+    post.replaceTags(Set.of(tag), BASE);
     posts.saveAndFlush(post);
     clear();
 
@@ -217,18 +217,18 @@ class BlogRepositoryTest {
     saveTag("unused", "Unused");
 
     Post p1 = savePost("p1", SupportedLocale.EN, 1);
-    p1.replaceTags(Set.of(used, alsoUsed));
+    p1.replaceTags(Set.of(used, alsoUsed), BASE);
     Post p2 = savePost("p2", SupportedLocale.EN, 2);
-    p2.replaceTags(Set.of(used));
+    p2.replaceTags(Set.of(used), BASE);
     Post draft = new Post("p3");
-    draft.putTranslation(SupportedLocale.EN, content("p3"));
-    draft.replaceTags(Set.of(onlyDraft));
+    draft.putTranslation(SupportedLocale.EN, content("p3"), BASE);
+    draft.replaceTags(Set.of(onlyDraft), BASE);
     posts.save(draft);
     Post deleted = savePost("p4", SupportedLocale.EN, 3);
-    deleted.replaceTags(Set.of(onlyDeleted));
+    deleted.replaceTags(Set.of(onlyDeleted), BASE);
     deleted.softDelete(BASE);
     Post uk = savePost("p5", SupportedLocale.UK, 4);
-    uk.replaceTags(Set.of(onlyUk));
+    uk.replaceTags(Set.of(onlyUk), BASE);
     clear();
 
     List<Tag> en = tags.findUsedByPostsVisibleIn(SupportedLocale.EN);
@@ -244,9 +244,9 @@ class BlogRepositoryTest {
   void countsPostsUsingTagAndLooksUpBySlug() {
     Tag tag = saveTag("counted", "Counted");
     saveTag("other", "Other");
-    savePost("c1", SupportedLocale.EN, 1).replaceTags(Set.of(tag));
+    savePost("c1", SupportedLocale.EN, 1).replaceTags(Set.of(tag), BASE);
     Post c2 = savePost("c2", SupportedLocale.EN, 2);
-    c2.replaceTags(Set.of(tag));
+    c2.replaceTags(Set.of(tag), BASE);
     c2.softDelete(BASE);
     clear();
 
@@ -310,14 +310,14 @@ class BlogRepositoryTest {
   @Test
   void translationEditAdvancesPostUpdatedAt() throws InterruptedException {
     Post post = posts.saveAndFlush(new Post("touch-translation"));
-    post.putTranslation(SupportedLocale.EN, content("v1"));
+    post.putTranslation(SupportedLocale.EN, content("v1"), BASE);
     posts.saveAndFlush(post);
     Instant before = postUpdatedAt(post.getId());
     clear();
     Thread.sleep(20);
 
     Post loaded = posts.findById(post.getId()).orElseThrow();
-    loaded.putTranslation(SupportedLocale.EN, content("v2"));
+    loaded.putTranslation(SupportedLocale.EN, content("v2"), BASE);
     em.flush();
 
     assertThat(postUpdatedAt(post.getId())).isAfter(before);
@@ -332,7 +332,7 @@ class BlogRepositoryTest {
     Thread.sleep(20);
 
     Post loaded = posts.findById(post.getId()).orElseThrow();
-    loaded.replaceTags(Set.of(tags.findById(tag.getId()).orElseThrow()));
+    loaded.replaceTags(Set.of(tags.findById(tag.getId()).orElseThrow()), BASE);
     em.flush();
 
     assertThat(postUpdatedAt(post.getId())).isAfter(before);

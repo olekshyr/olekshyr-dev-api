@@ -1,5 +1,6 @@
 package dev.olekshyr.api.shared;
 
+import java.util.List;
 import org.springframework.http.HttpStatus;
 
 /**
@@ -10,15 +11,27 @@ public abstract class ApiException extends RuntimeException {
 
   private final ErrorCode errorCode;
   private final HttpStatus status;
+  private final transient List<FieldViolation> violations;
 
   protected ApiException(
     ErrorCode errorCode,
     HttpStatus status,
     String message
   ) {
+    this(errorCode, status, message, List.of());
+  }
+
+  /** The violations become the response's per-field {@code details}. */
+  protected ApiException(
+    ErrorCode errorCode,
+    HttpStatus status,
+    String message,
+    List<FieldViolation> violations
+  ) {
     super(message);
     this.errorCode = errorCode;
     this.status = status;
+    this.violations = List.copyOf(violations);
   }
 
   public ErrorCode errorCode() {
@@ -27,5 +40,9 @@ public abstract class ApiException extends RuntimeException {
 
   public HttpStatus status() {
     return status;
+  }
+
+  public List<FieldViolation> violations() {
+    return violations;
   }
 }

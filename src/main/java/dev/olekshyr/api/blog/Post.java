@@ -5,11 +5,13 @@ import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Predicate;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -43,6 +45,7 @@ class Post {
   private Instant deletedAt;
 
   @OneToMany(mappedBy = "post", cascade = CascadeType.ALL, orphanRemoval = true)
+  @BatchSize(size = 50)
   @Getter(AccessLevel.NONE)
   private List<PostTranslation> translations = new ArrayList<>();
 
@@ -64,6 +67,14 @@ class Post {
     return Collections.unmodifiableList(translations);
   }
 
+  /** In en, uk, ja order (D18). */
+  List<PostTranslation> translationsInLocaleOrder() {
+    return translations
+      .stream()
+      .sorted(Comparator.comparing(PostTranslation::getLocale))
+      .toList();
+  }
+
   Set<Tag> getTags() {
     return Collections.unmodifiableSet(tags);
   }
@@ -76,7 +87,11 @@ class Post {
   }
 
   /** Creates or replaces the content of the translation in the given locale. */
-  PostTranslation putTranslation(SupportedLocale locale, PostContent content) {
+  PostTranslation putTranslation(
+    SupportedLocale locale,
+    PostContent content,
+    Instant now
+  ) {
     requireNotDeleted();
     PostTranslation translation = translation(locale)
       .orElseGet(() -> {
@@ -85,15 +100,15 @@ class Post {
         return created;
       });
     translation.updateContent(content);
-    touch();
+    touch(now);
     return translation;
   }
 
-  void replaceTags(Set<Tag> newTags) {
+  void replaceTags(Set<Tag> newTags, Instant now) {
     requireNotDeleted();
     tags.retainAll(newTags);
     tags.addAll(newTags);
-    touch();
+    touch(now);
   }
 
   void publish(SupportedLocale locale, Instant now) {
@@ -111,31 +126,44 @@ class Post {
       throw new PublishRequirementsNotMetException(missing);
     }
     translation.markPublished(now);
-    touch();
+    touch(now);
   }
 
-  void unpublish(SupportedLocale locale) {
+  void unpublish(SupportedLocale locale, Instant now) {
     requireNotDeleted();
     translation(locale)
       .orElseThrow(() -> new TranslationNotFoundException(locale))
       .markDraft();
-    touch();
+    touch(now);
   }
 
   boolean isEverPublished() {
     return translations.stream().anyMatch(t -> t.getPublishedAt() != null);
   }
 
-  void changeSlug(String newSlug) {
+  /**
+   * The slug rules (D10), in order: saving the slug the post already has is a
+   * no-op, a published post's slug is frozen, and a new slug must not be taken.
+   */
+  void changeSlug(String newSlug, Predicate<String> isTaken) {
     requireNotDeleted();
+    if (slug.equals(newSlug)) {
+      return;
+    }
     if (isEverPublished()) {
       throw new SlugFrozenException(slug);
+    }
+    if (isTaken.test(newSlug)) {
+      throw new DuplicateSlugException(newSlug);
     }
     this.slug = newSlug;
   }
 
+  /** Idempotent: deleting again keeps the first deletedAt (D23). */
   void softDelete(Instant now) {
-    this.deletedAt = now;
+    if (deletedAt == null) {
+      this.deletedAt = now;
+    }
   }
 
   boolean isDeleted() {
@@ -149,11 +177,13 @@ class Post {
   }
 
   /**
-   * Dirties the posts row so auditing refreshes updatedAt when only
-   * translations or tags changed.
+   * Marks the posts row dirty when only translations or tags changed, so
+   * auditing runs on flush. The value only lasts until then: auditing's
+   * {@code @PreUpdate} replaces it with the application clock's time, which is
+   * what gets stored.
    */
-  private void touch() {
-    this.updatedAt = Instant.now();
+  private void touch(Instant now) {
+    this.updatedAt = now;
   }
 
   private static boolean isBlank(String value) {
