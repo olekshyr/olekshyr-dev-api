@@ -63,7 +63,6 @@ interface PostTranslationRepository
     WHERE t.post.slug = :slug
       AND t.status = dev.olekshyr.api.blog.PostStatus.PUBLISHED
       AND t.post.deletedAt IS NULL
-    ORDER BY t.locale
     """
   )
   List<SupportedLocale> findVisibleLocalesBySlug(@Param("slug") String slug);

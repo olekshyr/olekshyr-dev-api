@@ -215,7 +215,7 @@ schema. No endpoints yet — verify with `@DataJpaTest` against TestContainers.
 > (12/12; full suite 37/37 green on 2026-10-17).
 >
 > Deviations: no separate `TagTranslationRepository` (translations are reached
-> through `Tag`, cascade ALL); `@EnableJpaAuditing` lives in `blog/JpaAuditingConfig`
+> through `Tag`, cascade ALL); `@EnableJpaAuditing` lives in `JpaAuditingConfig` (now in `shared`)
 > (not on `ApiApplication`, which broke `@WebMvcTest` slices); Hibernate-enhancer
 > synthetic methods are excluded from SpotBugs EI_EXPOSE_REP in
 > `spotbugs-exclude.xml`; with `enableAssociationManagement` the enhancer
@@ -378,8 +378,9 @@ test. It never goes through Flyway, so it can't reach prod.
   Count characters for `ja` (≈500 chars/min is a common estimate).
 
 - [x] **2.3 `PostQueryService`**
-  `listPublished(SupportedLocale, Pageable)` → `PageResponse<PostSummaryResponse>`
-  and `getPublished(String slug, SupportedLocale)`. The latter throws:
+  `listVisible(SupportedLocale, Pageable)` → `PageResponse<PostSummaryResponse>`
+  and `getVisible(String slug, SupportedLocale)` (first named `listPublished` /
+  `getPublished`; renamed to the glossary's "visible in a locale"). The latter throws:
   - `TranslationNotAvailableException` → `404 TRANSLATION_NOT_AVAILABLE` when
     the post is visible in at least one other locale (D5; no locale list);
   - `PostNotFoundException` → `404 NOT_FOUND` when the slug is unknown,
@@ -628,7 +629,7 @@ Goal: cache the public read paths in Redis and evict on admin writes
 
 - [x] **4.2 `@Cacheable` on read methods**
   Two caches, named as constants in `blog`: `blog-post-list` for
-  `listPublished` and `blog-post-detail` for `getPublished` in
+  `listVisible` and `blog-post-detail` for `getVisible` in
   `PostQueryService`. The `blog-` prefix keeps them apart from anything else
   in Redis later (for example the rate-limit counters in `project-plan.md`).
   Write the keys out in SpEL: `locale:page:size` and `slug:locale`, from the
@@ -756,8 +757,8 @@ Goal: lock in behavior with TestContainers-backed integration tests
 - [x] **6.2 Error message keys** — every new `ErrorCode` has keys in
   `messages.properties`, `messages_uk.properties` and `messages_ja.properties`.
   Done in Phase 2: `ErrorCodeMessagesTest` fails if any `ErrorCode` key is
-  missing from any of the three files. It doesn't cover the field-detail keys
-  added in 3.0 (`error.field.*`); extend it when they land.
+  missing from any of the three files; since Phase 3 it checks the
+  `FieldErrorCode` keys (`error.field.*`) too.
 - [ ] **6.3 ADR** — if the caching strategy or sanitization policy involved a
   non-obvious tradeoff, write an ADR following the existing
   `docs/adr/ADR-001` format.

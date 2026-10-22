@@ -6,20 +6,13 @@ import dev.olekshyr.api.shared.SupportedLocale;
 import org.springframework.http.HttpStatus;
 
 /** Admin publish/unpublish of a locale the post has no translation row in. */
-public class TranslationNotFoundException extends ApiException {
+class TranslationNotFoundException extends ApiException {
 
-  private final SupportedLocale locale;
-
-  public TranslationNotFoundException(SupportedLocale locale) {
+  TranslationNotFoundException(SupportedLocale locale) {
     super(
       ErrorCode.NOT_FOUND,
       HttpStatus.NOT_FOUND,
       "No translation for locale " + locale
     );
-    this.locale = locale;
-  }
-
-  public SupportedLocale getLocale() {
-    return locale;
   }
 }

@@ -3,6 +3,7 @@ package dev.olekshyr.api.blog;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.olekshyr.api.shared.FieldViolation;
 import dev.olekshyr.api.shared.SupportedLocale;
 import java.time.Instant;
 import java.util.Map;
@@ -74,8 +75,9 @@ class PostLifecycleTest {
       .isInstanceOfSatisfying(
         PublishRequirementsNotMetException.class,
         e ->
-          assertThat(e.getMissingFields())
-            .isEqualTo(Set.of("excerpt", "metaDescription"))
+          assertThat(e.violations())
+            .extracting(FieldViolation::field)
+            .containsExactly("excerpt", "metaDescription")
       );
     assertThat(
       post.translation(SupportedLocale.EN).orElseThrow().getPublishedAt()
@@ -93,7 +95,10 @@ class PostLifecycleTest {
     assertThatThrownBy(() -> post.publish(SupportedLocale.EN, T1))
       .isInstanceOfSatisfying(
         PublishRequirementsNotMetException.class,
-        e -> assertThat(e.getMissingFields()).containsExactly("metaDescription")
+        e ->
+          assertThat(e.violations())
+            .extracting(FieldViolation::field)
+            .containsExactly("metaDescription")
       );
   }
 

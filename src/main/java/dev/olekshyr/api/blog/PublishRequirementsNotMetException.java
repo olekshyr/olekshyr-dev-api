@@ -9,11 +9,9 @@ import java.util.TreeSet;
 import org.springframework.http.HttpStatus;
 
 /** Publishing needs excerpt and metaDescription (D9). */
-public class PublishRequirementsNotMetException extends ApiException {
+class PublishRequirementsNotMetException extends ApiException {
 
-  private final transient Set<String> missingFields;
-
-  public PublishRequirementsNotMetException(Set<String> missingFields) {
+  PublishRequirementsNotMetException(Set<String> missingFields) {
     super(
       ErrorCode.VALIDATION_FAILED,
       HttpStatus.BAD_REQUEST,
@@ -23,10 +21,5 @@ public class PublishRequirementsNotMetException extends ApiException {
         .map(field -> new FieldViolation(field, FieldErrorCode.NOT_BLANK))
         .toList()
     );
-    this.missingFields = Set.copyOf(missingFields);
-  }
-
-  public Set<String> getMissingFields() {
-    return missingFields;
   }
 }

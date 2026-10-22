@@ -8,6 +8,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Predicate;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -51,8 +52,18 @@ class Tag {
     this.color = color;
   }
 
-  void changeSlug(String slug) {
-    this.slug = slug;
+  /**
+   * Saving the slug the tag already has is a no-op; a new slug must not be
+   * taken (D10). Unlike a post's, a tag's slug never freezes.
+   */
+  void changeSlug(String newSlug, Predicate<String> isTaken) {
+    if (slug.equals(newSlug)) {
+      return;
+    }
+    if (isTaken.test(newSlug)) {
+      throw new DuplicateSlugException(newSlug);
+    }
+    this.slug = newSlug;
   }
 
   void changeColor(String color) {

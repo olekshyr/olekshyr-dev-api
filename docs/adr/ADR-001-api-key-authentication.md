@@ -5,7 +5,7 @@
 
 ## Context
 
-The API is a backend service consumed by controlled clients — internal systems and trusted partners — not end users in a browser. This shapes the authentication requirements significantly:
+The API is a backend service consumed by one controlled client — the Next.js site's server-side code — never by end users in a browser. This shapes the authentication requirements significantly:
 
 - Clients are machines, not humans; session-based flows and browser-oriented protocols add complexity without benefit.
 - The caller set is small and known at deployment time.

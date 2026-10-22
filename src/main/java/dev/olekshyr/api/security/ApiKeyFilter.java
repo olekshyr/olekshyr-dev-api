@@ -46,7 +46,8 @@ public abstract class ApiKeyFilter extends OncePerRequestFilter {
         );
       filterChain.doFilter(request, response);
     } else {
-      log.error(
+      // warn, not error: scanners and misconfigured clients are routine
+      log.warn(
         "Invalid or missing API key for path: {}",
         request.getRequestURI()
       );

@@ -22,11 +22,20 @@ class OtlpEndpointEnvironmentPostProcessorTest {
 
   private static final String LOGGING_ENDPOINT =
     "management.opentelemetry.logging.export.otlp.endpoint";
+  private static final String METRICS_EXPORT_ENABLED =
+    "management.otlp.metrics.export.enabled";
 
   private final OtlpEndpointEnvironmentPostProcessor processor =
-    new OtlpEndpointEnvironmentPostProcessor();
+    new OtlpEndpointEnvironmentPostProcessor(false);
 
   private MockEnvironment process(MockEnvironment environment) {
+    return process(processor, environment);
+  }
+
+  private static MockEnvironment process(
+    OtlpEndpointEnvironmentPostProcessor processor,
+    MockEnvironment environment
+  ) {
     processor.postProcessEnvironment(environment, new SpringApplication());
     return environment;
   }
@@ -72,6 +81,42 @@ class OtlpEndpointEnvironmentPostProcessorTest {
       .isEqualTo("http://c/v1/traces");
     assertThat(env.getProperty("management.otlp.metrics.export.url"))
       .isEqualTo("http://c/v1/metrics");
+  }
+
+  @Test
+  void unsetMetricsVariable_disablesMetricsExport() {
+    MockEnvironment env = process(new MockEnvironment());
+
+    assertThat(env.getProperty(METRICS_EXPORT_ENABLED)).isEqualTo("false");
+  }
+
+  @Test
+  void setMetricsVariable_leavesMetricsExportOn() {
+    MockEnvironment env = process(
+      new MockEnvironment()
+        .withProperty("OTLP_METRICS_ENDPOINT", "http://c/v1/metrics")
+    );
+
+    assertThat(env.containsProperty(METRICS_EXPORT_ENABLED)).isFalse();
+  }
+
+  @Test
+  void unsetMetricsVariable_withDockerCompose_leavesMetricsExportOn() {
+    MockEnvironment env = process(
+      new OtlpEndpointEnvironmentPostProcessor(true),
+      new MockEnvironment()
+    );
+
+    assertThat(env.containsProperty(METRICS_EXPORT_ENABLED)).isFalse();
+  }
+
+  @Test
+  void explicitMetricsExportProperty_wins() {
+    MockEnvironment env = process(
+      new MockEnvironment().withProperty(METRICS_EXPORT_ENABLED, "true")
+    );
+
+    assertThat(env.getProperty(METRICS_EXPORT_ENABLED)).isEqualTo("true");
   }
 
   @Test

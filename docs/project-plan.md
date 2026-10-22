@@ -93,7 +93,7 @@ Applies to every surface: public pages, `/admin`, the REST API and infrastructur
 
 ### Foundation
 - [ ] **README:** purpose, architecture sketch, tech stack, prerequisites, how to run locally, env var table (names only), implemented vs planned.
-- [ ] **CI runs the tests:** `.github/workflows/maven.yml` runs `mvn -B package`; switch it to `./mvnw verify` with Docker available so the Testcontainers tests run, and add a README badge.
+- [x] **CI runs the tests and checks:** `.github/workflows/maven.yml` runs `./mvnw -B verify`: the Testcontainers tests plus Spotless and SpotBugs (bound to `verify`). Still to do: a README badge.
 - [ ] **Dependabot or Renovate:** weekly Maven dependency PRs.
 - [ ] **Environment profiles:** `application-local.properties` / `application-prod.properties`; commit a `.env.example` documenting the required vars.
 - [ ] **Logging conventions:** JSON at INFO in prod, plain text at DEBUG locally; trace IDs on every request; per-package levels; redaction of secrets.

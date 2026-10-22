@@ -17,7 +17,7 @@ class TestcontainersConfiguration {
   @ServiceConnection
   LgtmStackContainer grafanaLgtmContainer() {
     return new LgtmStackContainer(
-      DockerImageName.parse("grafana/otel-lgtm:latest")
+      DockerImageName.parse("grafana/otel-lgtm:0.28.0")
     );
   }
 }
