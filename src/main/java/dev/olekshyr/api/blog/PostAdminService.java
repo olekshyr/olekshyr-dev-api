@@ -62,12 +62,14 @@ class PostAdminService {
     return AdminPostResponse.of(find(id));
   }
 
+  @EvictsPublicPosts
   AdminPostResponse create(String slug) {
     requireSlugAvailable(slug);
     Post post = posts.save(new Post(slug));
     return respond(post);
   }
 
+  @EvictsPublicPosts
   AdminPostResponse changeSlug(long id, String slug) {
     Post post = writable(id);
     post.changeSlug(slug, posts::existsBySlug);
@@ -75,6 +77,7 @@ class PostAdminService {
   }
 
   /** Live at once if the translation is published (D11). */
+  @EvictsPublicPosts
   AdminPostResponse upsertTranslation(
     long id,
     SupportedLocale locale,
@@ -89,23 +92,27 @@ class PostAdminService {
     return respond(post);
   }
 
+  @EvictsPublicPosts
   AdminPostResponse publish(long id, SupportedLocale locale) {
     Post post = writable(id);
     post.publish(locale, clock.instant());
     return respond(post);
   }
 
+  @EvictsPublicPosts
   AdminPostResponse unpublish(long id, SupportedLocale locale) {
     Post post = writable(id);
     post.unpublish(locale, clock.instant());
     return respond(post);
   }
 
+  @EvictsPublicPosts
   void softDelete(long id) {
     find(id).softDelete(clock.instant());
   }
 
   /** Unknown slugs are reported by their index in the request (tagSlugs[i]). */
+  @EvictsPublicPosts
   AdminPostResponse setTags(long id, List<String> tagSlugs) {
     Post post = writable(id);
     Map<String, Tag> found = tags

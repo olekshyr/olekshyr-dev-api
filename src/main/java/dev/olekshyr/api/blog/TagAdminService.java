@@ -34,6 +34,7 @@ class TagAdminService {
     return AdminTagResponse.of(find(id));
   }
 
+  @EvictsPublicPosts
   AdminTagResponse create(UpsertTagRequest request) {
     requireSlugAvailable(request.slug());
     Tag tag = new Tag(request.slug(), request.color());
@@ -42,6 +43,7 @@ class TagAdminService {
   }
 
   /** PUT replaces slug, color and names (D14). */
+  @EvictsPublicPosts
   AdminTagResponse update(long id, UpsertTagRequest request) {
     Tag tag = find(id);
     if (!request.slug().equals(tag.getSlug())) {
@@ -57,6 +59,7 @@ class TagAdminService {
    * Checked here rather than by mapping the FK violation, which looks like any
    * other constraint violation. The FK stays as the backstop for races.
    */
+  @EvictsPublicPosts
   void delete(long id) {
     Tag tag = find(id);
     long postCount = tags.countPostsUsing(id);

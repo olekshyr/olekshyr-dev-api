@@ -169,7 +169,12 @@ disagree, this section wins.
   Visibility doesn't depend on time (there's no scheduled publishing in v1), so
   nothing else changes public output. The TTL is 1 hour: it only limits how
   long a missed eviction (Redis down, a manual DB edit, a bug) can show stale
-  content.
+  content. Accepted race: a public read that loads from Postgres just before a
+  write commits can store its old result after that write's eviction, and it
+  stays until the TTL (or the next admin write). The window is one read's
+  database time, and on a low-traffic blog with one author it's rare enough
+  not to justify a delayed second eviction; if it bites, save again or clear
+  the `blog-post-*` keys.
 - **D25 — The cache never fails a request.** If Redis is unreachable, the
   error is logged at `warn` and the request reads from Postgres. An eviction
   that fails while Redis is down can leave stale entries until the TTL (D24).
@@ -579,20 +584,49 @@ Goal: cache the public read paths in Redis and evict on admin writes
 > for the commit; keys are explicit; the serializer uses Boot's mapper and
 > reads strictly (D26); the TTL is 1 hour, not 5 minutes (D24); new steps 4.4
 > (error handling) and 4.5 (Redis in the blog tests). The old 4.4 is now 4.6.
+>
+> Status 2026-10-22: 4.1–4.6 done. Full suite 203/203 green, Spotless and
+> SpotBugs clean, smoke script 38/38 with `-Seed`. Live check against the
+> compose stack: both caches fill (1-hour TTL), the detail key is gone as soon
+> as an admin edit returns, the next public read shows the edit, and Grafana
+> shows `cache_gets_total` hits and misses per cache.
+>
+> Deviations:
+> - No `transactionAware()`. Its deferred evictions run in the transaction's
+>   `afterCommit`, outside the `CacheErrorHandler`, so a failed one would fail
+>   an already-committed write with a 500 (against D25). Instead
+>   `@EnableCaching(order = HIGHEST_PRECEDENCE)` puts the caching advice
+>   outside the transaction advice: the eviction runs after the commit, through
+>   the error handler.
+> - Immediate cache writes (`RedisCacheWriter` with `immediateWrites()`):
+>   Spring Data Redis 4 writes asynchronously by default with Lettuce, so an
+>   eviction could still be running when the admin response went out, and a
+>   failed put or clear never reached the error handler.
+> - `opentelemetry-logback-appender` pinned to `2.21.0-alpha`, the release
+>   built on the OpenTelemetry API Boot 4.0.6 manages (1.55.0). Since May,
+>   `2.27.0-alpha` had thrown `NoSuchMethodError`
+>   (`LogRecordBuilder.setException`) on every log call that carried an
+>   exception, so any logged 500 or cache warning failed the request.
+>   `PostCacheRedisDownIntegrationTest` covers it.
+> - Cache tests show a cached response by changing the row straight in the
+>   database (no repository spy). Caches are cleared before each test by
+>   `ClearCachesTestExecutionListener`, registered on each Redis-backed class.
+> - The smoke script's `-Seed` also deletes the `blog-post-*` keys: the seed
+>   bypasses the admin API, and Redis outlives the app.
 
-- [ ] **4.1 Enable Spring Cache**
+- [x] **4.1 Enable Spring Cache**
   Add `spring-boot-starter-cache`: Boot 4 split cache autoconfiguration into
   its own module, and `spring-boot-starter-data-redis` alone doesn't bring it.
   `@EnableCaching` is required: Boot only configures a `CacheManager` when it's
   present, and then detects Redis on its own. The app-wide parts go in
-  `shared` (`CacheConfig`): `@EnableCaching`, the error handler (4.4) and a
-  `RedisCacheManagerBuilderCustomizer` calling `transactionAware()`, so an
-  eviction inside a `@Transactional` admin write runs after the commit. Without
-  that, a public read between the eviction and the commit can cache the old
-  data again until the TTL. Properties: `spring.cache.redis.time-to-live=1h`
-  (D24) and `spring.cache.redis.enable-statistics=true` (4.6).
+  `shared` (`CacheConfig`): `@EnableCaching(order = HIGHEST_PRECEDENCE)`, so
+  an eviction runs after the admin write's transaction commits (an eviction
+  before the commit lets a public read cache the old data again until the
+  TTL); the error handler (4.4); and immediate cache writes (see the
+  deviations above). Properties: `spring.cache.redis.time-to-live=1h` (D24)
+  and `spring.cache.redis.enable-statistics=true` (4.6).
 
-- [ ] **4.2 `@Cacheable` on read methods**
+- [x] **4.2 `@Cacheable` on read methods**
   Two caches, named as constants in `blog`: `blog-post-list` for
   `listPublished` and `blog-post-detail` for `getPublished` in
   `PostQueryService`. The `blog-` prefix keeps them apart from anything else
@@ -621,7 +655,7 @@ Goal: cache the public read paths in Redis and evict on admin writes
   it. Every record field is a constructor argument, so an old entry with a
   different shape fails to read instead of coming back with nulls (D26).
 
-- [ ] **4.3 `@CacheEvict` on writes**
+- [x] **4.3 `@CacheEvict` on writes**
   Every write method in `PostAdminService` and `TagAdminService` (anything not
   `readOnly`) clears both caches with `allEntries = true`, including `create`
   and `changeSlug`, which can't change public output today. One simple rule is
@@ -629,7 +663,7 @@ Goal: cache the public read paths in Redis and evict on admin writes
   methods, not the class: on the class it would also run on the admin reads
   (`list`, `get`). A meta-annotation (`@EvictsPublicPosts`) keeps that short.
 
-- [ ] **4.4 Cache error handling** (D25, D26)
+- [x] **4.4 Cache error handling** (D25, D26)
   A `CacheErrorHandler` (from `CachingConfigurer.errorHandler()` in
   `shared.CacheConfig`) that never rethrows. A failed get counts as a miss:
   Spring runs the method and the put overwrites the entry. A
@@ -637,7 +671,7 @@ Goal: cache the public read paths in Redis and evict on admin writes
   else (Redis unreachable) at `warn`. A failed put, evict or clear is logged at
   `warn`.
 
-- [ ] **4.5 Redis in the blog tests**
+- [x] **4.5 Redis in the blog tests**
   `PostApiIntegrationTest`, `AdminPostApiIntegrationTest` and
   `AdminTagApiIntegrationTest` import only `PostgresContainerConfiguration`,
   so once caching is on their reads would try `localhost:6379`. Add a
@@ -656,12 +690,10 @@ Goal: cache the public read paths in Redis and evict on admin writes
     with Redis pointed at a closed port, so it doesn't disturb the shared
     container).
 
-- [ ] **4.6 Verify with logs/Grafana**
+- [x] **4.6 Verify with logs/Grafana**
   Confirm cache hits/misses show up and that publishing a post is reflected
   immediately. datasource-micrometer only shows the queries that ran; the
-  `cache.gets` hit/miss metrics need `spring.cache.redis.enable-statistics=true`
-  (Boot unwraps the transaction-aware caches for metrics, so 4.1 doesn't hide
-  them).
+  `cache.gets` hit/miss metrics need `spring.cache.redis.enable-statistics=true`.
 
 ---
 
