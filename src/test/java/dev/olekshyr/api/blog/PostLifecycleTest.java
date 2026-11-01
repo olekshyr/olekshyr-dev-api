@@ -53,6 +53,18 @@ class PostLifecycleTest {
   }
 
   @Test
+  void publishingAgainKeepsFirstPublishedAt() {
+    Post post = postWith(SupportedLocale.EN, complete());
+    post.publish(SupportedLocale.EN, T1);
+
+    post.publish(SupportedLocale.EN, T2);
+
+    PostTranslation t = post.translation(SupportedLocale.EN).orElseThrow();
+    assertThat(t.getStatus()).isEqualTo(PostStatus.PUBLISHED);
+    assertThat(t.getPublishedAt()).isEqualTo(T1);
+  }
+
+  @Test
   void unpublishRevertsToDraftAndKeepsPublishedAt() {
     Post post = postWith(SupportedLocale.EN, complete());
     post.publish(SupportedLocale.EN, T1);
@@ -107,6 +119,14 @@ class PostLifecycleTest {
     Post post = postWith(SupportedLocale.EN, complete());
 
     assertThatThrownBy(() -> post.publish(SupportedLocale.UK, T1))
+      .isInstanceOf(TranslationNotFoundException.class);
+  }
+
+  @Test
+  void unpublishMissingTranslationFails() {
+    Post post = postWith(SupportedLocale.EN, complete());
+
+    assertThatThrownBy(() -> post.unpublish(SupportedLocale.UK, T1))
       .isInstanceOf(TranslationNotFoundException.class);
   }
 

@@ -41,6 +41,30 @@ class BodySanitizerTest {
   }
 
   @Test
+  void dropsDataUriImageSources() {
+    assertThat(
+      sanitizer.sanitize("<img src=\"data:image/png;base64,AAAA\" alt=\"a\">")
+    )
+      .isEqualTo("<img alt=\"a\" />");
+  }
+
+  @Test
+  void stripsInlineStylesAndIframes() {
+    assertThat(
+      sanitizer.sanitize(
+        "<p style=\"color:red\">Hi</p><iframe src=\"https://x.test\"></iframe>"
+      )
+    )
+      .isEqualTo("<p>Hi</p>");
+  }
+
+  @Test
+  void keepsMailtoLinks() {
+    assertThat(sanitizer.sanitize("<a href=\"mailto:me@example.com\">me</a>"))
+      .contains("href=\"mailto:");
+  }
+
+  @Test
   void linksGetRelAttributes() {
     assertThat(sanitizer.sanitize("<a href=\"https://example.com\">x</a>"))
       .contains("href=\"https://example.com\"")

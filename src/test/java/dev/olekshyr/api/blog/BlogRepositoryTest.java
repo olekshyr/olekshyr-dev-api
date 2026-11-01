@@ -267,6 +267,46 @@ class BlogRepositoryTest {
   }
 
   @Test
+  void duplicateTagSlugIsRejected() {
+    saveTag("dup", null);
+
+    assertThatThrownBy(() -> tags.saveAndFlush(new Tag("dup", null)))
+      .isInstanceOf(DataIntegrityViolationException.class)
+      .hasMessageContaining("tags_slug_key");
+  }
+
+  @Test
+  void secondTranslationInSameLocaleIsRejected() {
+    Post post = savePost("one-per-locale", SupportedLocale.EN, 1);
+    clear();
+
+    assertThatThrownBy(() ->
+        jdbc.update(
+          "INSERT INTO post_translations (post_id, locale, title, body) " +
+          "VALUES (?, 'en', 'Again', 'Body')",
+          post.getId()
+        )
+      )
+      .isInstanceOf(DataIntegrityViolationException.class)
+      .hasMessageContaining("uq_post_locale");
+  }
+
+  @Test
+  void localeIsStoredLowercaseAndStatusUppercase() {
+    savePost("casing", SupportedLocale.UK, 1);
+    clear();
+
+    assertThat(
+      jdbc.queryForMap(
+        "SELECT t.locale, t.status FROM post_translations t " +
+        "JOIN posts p ON p.id = t.post_id WHERE p.slug = 'casing'"
+      )
+    )
+      .containsEntry("locale", "uk")
+      .containsEntry("status", "PUBLISHED");
+  }
+
+  @Test
   void duplicateTagNamePerLocaleIsRejectedButAllowedAcrossLocales() {
     saveTag("one", "Same");
     Tag other = saveTag("other-locale", null);
