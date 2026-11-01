@@ -703,11 +703,28 @@ Goal: cache the public read paths in Redis and evict on admin writes
 Goal: lock in behavior with TestContainers-backed integration tests
 (`TestcontainersConfiguration` / `TestApiApplication` already exist).
 
-- [ ] **5.1 Repository tests** (if not already done in 1.7, expand coverage:
+> Status 2026-11-02: 5.1–5.5 done. Most of 5.1–5.4 had been written alongside
+> Phases 1–4, so this phase audited those tests against the lists below and
+> filled the gaps:
+> - 5.1: duplicate tag slug and a second translation in the same locale are
+>   rejected by the DB; the locale column is stored lowercase and the status
+>   uppercase (the CHECK constraints' casing).
+> - 5.2: `Vary: Accept-Language` on an error response.
+> - 5.3: the tag step in the full lifecycle; publishing a deleted post → 404;
+>   the top-level `ja` message on `VALIDATION_FAILED`.
+> - Wrong-key cases stay in `SecurityFilterChainTest` only: the chains match
+>   on path, so repeating them per endpoint adds no coverage.
+> - 5.4: publishing an already-published translation keeps `publishedAt`;
+>   unpublishing a missing translation fails; the sanitizer drops `data:`
+>   image sources, inline styles and iframes, and keeps `mailto:` links.
+> - 5.5: `ModularityTest` (in the root test package, since it covers every
+>   module).
+
+- [x] **5.1 Repository tests** (if not already done in 1.7, expand coverage:
   pagination, locale filtering, soft-delete filtering, the unique constraints
   failing as expected).
 
-- [ ] **5.2 Public API integration tests** (written alongside Phase 2; this
+- [x] **5.2 Public API integration tests** (written alongside Phase 2; this
   step is the completeness check)
   `MockMvc` + real Postgres/Redis containers, data from `blog-seed.sql`: list
   posts (empty, populated, paginated, default size 10, `size` capped at 50,
@@ -719,7 +736,7 @@ Goal: lock in behavior with TestContainers-backed integration tests
   slug order, `POST /api/v1/posts` → 405 `UNSUPPORTED_REQUEST`,
   missing/invalid `PUBLIC_API_KEY` → 401.
 
-- [ ] **5.3 Admin API integration tests** (written alongside Phase 3; this
+- [x] **5.3 Admin API integration tests** (written alongside Phase 3; this
   step is the completeness check)
   Full create → translate → publish → unpublish → re-publish (same
   `publishedAt`) → tag → soft-delete lifecycle. Publish without excerpt →
@@ -732,10 +749,10 @@ Goal: lock in behavior with TestContainers-backed integration tests
   localized for `uk` and `ja`. Wrong/missing `ADMIN_API_KEY` → 403.
   Cross-tier check: a valid `PUBLIC_API_KEY` against an admin route → 403.
 
-- [ ] **5.4 Sanitizer + read-time + entity lifecycle unit tests**
+- [x] **5.4 Sanitizer + read-time + entity lifecycle unit tests**
   Pure unit tests, no containers needed — fast feedback loop.
 
-- [ ] **5.5 Modulith boundary test**
+- [x] **5.5 Modulith boundary test**
   `ApplicationModules.of(ApiApplication.class).verify()` —
   `spring-modulith-starter-test` is already on the classpath. This is the
   first real second module, so this test starts paying for itself now

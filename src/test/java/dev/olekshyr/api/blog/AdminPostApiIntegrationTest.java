@@ -12,13 +12,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import dev.olekshyr.api.shared.ErrorCode;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Collections;
+import java.util.Locale;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.MessageSource;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -59,6 +62,9 @@ class AdminPostApiIntegrationTest {
 
   @Autowired
   JdbcTemplate jdbc;
+
+  @Autowired
+  MessageSource messages;
 
   private long idOf(String slug) {
     return jdbc.queryForObject(
@@ -249,6 +255,12 @@ class AdminPostApiIntegrationTest {
     send(post(POSTS + "/" + id + "/translations/en/publish"))
       .andExpect(jsonPath("$.translations[0].publishedAt").value(publishedAt));
 
+    sendJson(put(POSTS + "/" + id + "/tags"), "{\"tagSlugs\": [\"java\"]}")
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.tags[*].slug").value(contains("java")));
+    publicGet("new-post")
+      .andExpect(jsonPath("$.tags[*].slug").value(contains("java")));
+
     send(delete(POSTS + "/" + id)).andExpect(status().isNoContent());
     publicGet("new-post").andExpect(status().isNotFound());
     sendJson(post(POSTS), "{\"slug\": \"new-post\"}")
@@ -388,6 +400,16 @@ class AdminPostApiIntegrationTest {
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
         .andExpect(
+          jsonPath("$.message")
+            .value(
+              messages.getMessage(
+                ErrorCode.VALIDATION_FAILED.messageKey(),
+                null,
+                Locale.JAPANESE
+              )
+            )
+        )
+        .andExpect(
           jsonPath("$.details[*].field")
             .value(contains("excerpt", "metaDescription"))
         )
@@ -491,6 +513,8 @@ class AdminPostApiIntegrationTest {
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value("NOT_FOUND"));
       sendJson(put(POSTS + "/" + id + "/translations/en"), COMPLETE_TRANSLATION)
+        .andExpect(status().isNotFound());
+      send(post(POSTS + "/" + id + "/translations/en/publish"))
         .andExpect(status().isNotFound());
       send(post(POSTS + "/" + id + "/translations/en/unpublish"))
         .andExpect(status().isNotFound());

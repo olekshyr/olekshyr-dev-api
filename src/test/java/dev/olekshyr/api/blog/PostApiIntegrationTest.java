@@ -216,6 +216,7 @@ class PostApiIntegrationTest {
         .perform(publicGet("/api/v1/posts/hello-world", "ja"))
         .andExpect(status().isNotFound())
         .andExpect(header().string("Content-Language", "ja"))
+        .andExpect(header().stringValues("Vary", hasItem("Accept-Language")))
         .andExpect(jsonPath("$.code").value("TRANSLATION_NOT_AVAILABLE"))
         .andExpect(
           jsonPath("$.message")
