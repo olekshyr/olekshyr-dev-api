@@ -98,6 +98,43 @@ class PostLifecycleTest {
   }
 
   @Test
+  void editingAPublishedTranslationKeepsThePublishRequirements() {
+    Post post = postWith(SupportedLocale.EN, complete());
+    post.publish(SupportedLocale.EN, T1);
+
+    assertThatThrownBy(() ->
+        post.putTranslation(
+          SupportedLocale.EN,
+          new PostContent("Title", null, "Body", null, "Meta desc"),
+          T2
+        )
+      )
+      .isInstanceOfSatisfying(
+        PublishRequirementsNotMetException.class,
+        e ->
+          assertThat(e.violations())
+            .extracting(FieldViolation::field)
+            .containsExactly("excerpt")
+      );
+    assertThat(post.translation(SupportedLocale.EN).orElseThrow().getExcerpt())
+      .isEqualTo("Excerpt");
+  }
+
+  @Test
+  void editingADraftNeedsNoExcerpt() {
+    Post post = postWith(SupportedLocale.EN, complete());
+
+    post.putTranslation(
+      SupportedLocale.EN,
+      new PostContent("Title", null, "Body", null, null),
+      T2
+    );
+
+    assertThat(post.translation(SupportedLocale.EN).orElseThrow().getExcerpt())
+      .isNull();
+  }
+
+  @Test
   void publishWithoutMetaDescriptionReportsOnlyThatField() {
     Post post = postWith(
       SupportedLocale.EN,

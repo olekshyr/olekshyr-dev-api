@@ -1,19 +1,27 @@
 package dev.olekshyr.api.blog;
 
+import dev.olekshyr.api.shared.ApiError;
+import dev.olekshyr.api.shared.ErrorCode;
+import dev.olekshyr.api.shared.PageParameters;
 import dev.olekshyr.api.shared.PageResponse;
 import dev.olekshyr.api.shared.SupportedLocale;
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.enums.ParameterIn;
-import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Public read API; the locale comes from Accept-Language (D1). */
+@Tag(
+  name = "Posts",
+  description = "Published posts, in the locale `Accept-Language` picks."
+)
 @RestController
 @RequestMapping("/api/v1/posts")
 @RequiredArgsConstructor
@@ -26,23 +34,14 @@ class PostController {
    * documents only page and size because any sort parameter is ignored.
    */
   @GetMapping
-  @Parameter(
-    in = ParameterIn.QUERY,
-    name = "page",
-    description = "Zero-based page index",
-    schema = @Schema(type = "integer", defaultValue = "0", minimum = "0")
+  @Operation(
+    operationId = "listPosts",
+    summary = "List the posts visible in the locale",
+    description = "Posts with a published translation in the resolved " +
+    "locale, newest `publishedAt` first. Drafts and deleted posts never " +
+    "appear."
   )
-  @Parameter(
-    in = ParameterIn.QUERY,
-    name = "size",
-    description = "Page size; larger values are capped at 50",
-    schema = @Schema(
-      type = "integer",
-      defaultValue = "10",
-      minimum = "1",
-      maximum = "50"
-    )
-  )
+  @PageParameters
   PageResponse<PostSummaryResponse> list(
     @Parameter(hidden = true) Pageable pageable,
     Locale locale
@@ -51,7 +50,32 @@ class PostController {
   }
 
   @GetMapping("/{slug}")
-  PostDetailResponse get(@PathVariable String slug, Locale locale) {
+  @Operation(
+    operationId = "getPost",
+    summary = "Get a post by slug",
+    description = "The post's translation in the resolved locale, if it's " +
+    "published there. There's no fallback to another locale."
+  )
+  @ApiError(
+    status = HttpStatus.NOT_FOUND,
+    code = ErrorCode.NOT_FOUND,
+    when = "No post with this slug is visible in any locale: an unknown " +
+    "slug, a deleted post, or one with drafts only."
+  )
+  @ApiError(
+    status = HttpStatus.NOT_FOUND,
+    code = ErrorCode.TRANSLATION_NOT_AVAILABLE,
+    when = "The post is visible in another locale, not this one. Show " +
+    "\"not available in this language\"."
+  )
+  PostDetailResponse get(
+    @Parameter(
+      description = "Matched exactly: no case folding, and a malformed slug " +
+      "is just not found.",
+      example = "hello-world"
+    ) @PathVariable String slug,
+    Locale locale
+  ) {
     return posts.getVisible(slug, SupportedLocale.from(locale));
   }
 }

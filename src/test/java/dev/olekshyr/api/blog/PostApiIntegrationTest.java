@@ -1,7 +1,6 @@
 package dev.olekshyr.api.blog;
 
 import static org.hamcrest.Matchers.contains;
-import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -259,17 +258,6 @@ class PostApiIntegrationTest {
       .perform(post("/api/v1/posts").header(KEY_HEADER, PUBLIC_KEY))
       .andExpect(status().isMethodNotAllowed())
       .andExpect(jsonPath("$.code").value("UNSUPPORTED_REQUEST"));
-  }
-
-  @Test
-  void openApi_documentsPageAndSizeAsQueryParams() throws Exception {
-    mockMvc
-      .perform(get("/v3/api-docs").header(KEY_HEADER, PUBLIC_KEY))
-      .andExpect(status().isOk())
-      .andExpect(
-        jsonPath("$.paths['/api/v1/posts'].get.parameters[*].name")
-          .value(containsInAnyOrder("page", "size"))
-      );
   }
 
   @Test

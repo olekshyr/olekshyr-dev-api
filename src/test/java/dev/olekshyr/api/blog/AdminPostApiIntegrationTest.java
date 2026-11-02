@@ -379,6 +379,23 @@ class AdminPostApiIntegrationTest {
       publicGet("hello-world").andExpect(jsonPath("$.title").value("New post"));
     }
 
+    /** It's live (D11), so it must keep what publishing needs (D9). */
+    @Test
+    void editToPublishedTranslation_withoutExcerpt_isRejected()
+      throws Exception {
+      sendJson(
+        put(POSTS + "/" + idOf("hello-world") + "/translations/en"),
+        "{\"title\": \"T\", \"body\": \"<p>x</p>\", \"metaDescription\": \"M\"}"
+      )
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+        .andExpect(jsonPath("$.details[*].field").value(contains("excerpt")))
+        .andExpect(jsonPath("$.details[0].code").value("NOT_BLANK"));
+
+      publicGet("hello-world")
+        .andExpect(jsonPath("$.excerpt").value("The first post."));
+    }
+
     @Test
     void missingTitle_returnsFieldDetails() throws Exception {
       sendJson(

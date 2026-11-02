@@ -82,4 +82,8 @@ class PostTranslation {
   void markDraft() {
     this.status = PostStatus.DRAFT;
   }
+
+  boolean isPublished() {
+    return status == PostStatus.PUBLISHED;
+  }
 }

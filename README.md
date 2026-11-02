@@ -93,8 +93,11 @@ An error looks like this (the message follows `Accept-Language`):
 }
 ```
 
-Swagger UI is at `/swagger-ui.html`. It needs the public key too, unless
-`APP_DOCS_PUBLIC=true` (see below).
+The OpenAPI spec is the integration reference: one document per key,
+`/v3/api-docs/public` and `/v3/api-docs/admin` (YAML at `/v3/api-docs.yaml/{group}`),
+with every parameter, field, header and error code per endpoint. Swagger UI is at
+`/swagger-ui.html`, with a group switcher and an Authorize button for the key. Both
+need the public key too, unless `APP_DOCS_PUBLIC=true` (see below).
 
 ## Tech stack
 
@@ -163,9 +166,10 @@ docs/                              # project plan, blog plan, ERD, ADRs
 
 ## Status
 
-**Done:** domain model and schema, public read API, admin write API, Redis caching, CI.
+**Done:** domain model and schema, public read API, admin write API, Redis caching,
+grouped OpenAPI docs, CI.
 
-**Next:** grouped OpenAPI docs for the frontend, the first deployment (Dockerfile,
+**Next:** the first deployment (Dockerfile,
 managed Postgres and Redis), rate limiting on public routes, and connecting the
 Next.js frontend.
 

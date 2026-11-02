@@ -50,6 +50,16 @@ class DocsFilterChainTest {
     }
 
     @Test
+    void groupApiDocs_withoutKey_areNotBlocked() throws Exception {
+      mockMvc
+        .perform(get("/v3/api-docs/public"))
+        .andExpect(status().isNotFound());
+      mockMvc
+        .perform(get("/v3/api-docs.yaml/admin"))
+        .andExpect(status().isNotFound());
+    }
+
+    @Test
     void apiRoutes_stillNeedTheKey() throws Exception {
       mockMvc
         .perform(get("/api/v1/posts"))

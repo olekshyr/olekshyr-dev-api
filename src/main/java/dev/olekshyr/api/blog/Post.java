@@ -86,19 +86,26 @@ class Post {
       .findFirst();
   }
 
-  /** Creates or replaces the content of the translation in the given locale. */
+  /**
+   * Creates or replaces the content of the translation in the given locale. A
+   * published translation is live (D11), so its new content must still meet
+   * the publish requirements (D9).
+   */
   PostTranslation putTranslation(
     SupportedLocale locale,
     PostContent content,
     Instant now
   ) {
     requireNotDeleted();
-    PostTranslation translation = translation(locale)
-      .orElseGet(() -> {
-        PostTranslation created = new PostTranslation(this, locale);
-        translations.add(created);
-        return created;
-      });
+    Optional<PostTranslation> existing = translation(locale);
+    if (existing.filter(PostTranslation::isPublished).isPresent()) {
+      requirePublishable(content.excerpt(), content.metaDescription());
+    }
+    PostTranslation translation = existing.orElseGet(() -> {
+      PostTranslation created = new PostTranslation(this, locale);
+      translations.add(created);
+      return created;
+    });
     translation.updateContent(content);
     touch(now);
     return translation;
@@ -115,16 +122,10 @@ class Post {
     requireNotDeleted();
     PostTranslation translation = translation(locale)
       .orElseThrow(() -> new TranslationNotFoundException(locale));
-    Set<String> missing = new TreeSet<>();
-    if (isBlank(translation.getExcerpt())) {
-      missing.add("excerpt");
-    }
-    if (isBlank(translation.getMetaDescription())) {
-      missing.add("metaDescription");
-    }
-    if (!missing.isEmpty()) {
-      throw new PublishRequirementsNotMetException(missing);
-    }
+    requirePublishable(
+      translation.getExcerpt(),
+      translation.getMetaDescription()
+    );
     translation.markPublished(now);
     touch(now);
   }
@@ -184,6 +185,23 @@ class Post {
    */
   private void touch(Instant now) {
     this.updatedAt = now;
+  }
+
+  /** D9: publishing needs excerpt and metaDescription. */
+  private static void requirePublishable(
+    String excerpt,
+    String metaDescription
+  ) {
+    Set<String> missing = new TreeSet<>();
+    if (isBlank(excerpt)) {
+      missing.add("excerpt");
+    }
+    if (isBlank(metaDescription)) {
+      missing.add("metaDescription");
+    }
+    if (!missing.isEmpty()) {
+      throw new PublishRequirementsNotMetException(missing);
+    }
   }
 
   private static boolean isBlank(String value) {
