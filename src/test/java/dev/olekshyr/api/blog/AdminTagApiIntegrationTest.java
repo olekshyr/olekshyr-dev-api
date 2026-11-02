@@ -113,6 +113,14 @@ class AdminTagApiIntegrationTest {
   }
 
   @Test
+  void blankName_isReportedUnderItsLocaleCode() throws Exception {
+    sendJson(post(TAGS), "{\"slug\": \"go\", \"names\": {\"EN\": \" \"}}")
+      .andExpect(status().isBadRequest())
+      .andExpect(jsonPath("$.details[0].field").value("names[en]"))
+      .andExpect(jsonPath("$.details[0].code").value("NOT_BLANK"));
+  }
+
+  @Test
   void invalidColor_returnsFieldDetails() throws Exception {
     sendJson(
       post(TAGS),

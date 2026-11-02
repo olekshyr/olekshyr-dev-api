@@ -2,7 +2,11 @@ package dev.olekshyr.api.shared;
 
 import io.opentelemetry.api.trace.Span;
 import java.time.Clock;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.Nullable;
@@ -31,6 +35,18 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
   private static final String ALL_ZEROS_TRACE_ID = "0".repeat(32);
+
+  /** Enum name to code (EN → en): what validation prints for a locale key. */
+  private static final Map<String, String> LOCALE_CODES = Arrays
+    .stream(SupportedLocale.values())
+    .collect(Collectors.toMap(Enum::name, SupportedLocale::code));
+
+  private static final Pattern LOCALE_KEY = Pattern.compile(
+    LOCALE_CODES
+      .keySet()
+      .stream()
+      .collect(Collectors.joining("|", "\\[(", ")]"))
+  );
 
   private final MessageSource messageSource;
   private final Clock clock;
@@ -103,7 +119,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
       .stream()
       .map(fe ->
         new ApiFieldError(
-          fe.getField(),
+          withLocaleCodes(fe.getField()),
           toConstraintCode(fe.getCode()),
           fe.getDefaultMessage()
         )
@@ -240,6 +256,16 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     return request instanceof ServletWebRequest servletRequest
       ? servletRequest.getRequest().getRequestURI()
       : null;
+  }
+
+  /**
+   * Validation names a map entry by its key's toString(), so a locale key
+   * comes out as the enum name (names[EN]); the request used the code (D18).
+   */
+  static String withLocaleCodes(String field) {
+    return LOCALE_KEY
+      .matcher(field)
+      .replaceAll(m -> "[" + LOCALE_CODES.get(m.group(1)) + "]");
   }
 
   private static String toConstraintCode(String constraintCode) {

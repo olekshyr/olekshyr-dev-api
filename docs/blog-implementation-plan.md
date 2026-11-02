@@ -1,8 +1,9 @@
 # Blog Feature — Implementation Plan
 
-**Status:** In progress · **Date:** 2026-06-11 · **Decisions agreed:** 2026-10-17
+**Status:** In progress (only 6.4, in the frontend repository, is left) ·
+**Date:** 2026-06-11 · **Decisions agreed:** 2026-10-17
 (Phase 2 review: 2026-10-22; Phase 3–6 checked against the code: 2026-10-22;
-Phase 4 review: 2026-10-22)
+Phase 4 review: 2026-10-22; Phase 6 review: 2026-11-02)
 
 This is a self-paced, step-by-step plan for building the blog feature on top of
 the existing foundation (security, error handling, observability, V1 schema).
@@ -92,6 +93,9 @@ disagree, this section wins.
   DB enforces (`title`, `body`). If either is missing, return
   `400 VALIDATION_FAILED` with per-field `details`. Saving a draft needs only
   the DB-required fields.
+  *Amended 2026-11-02 (Phase 6 review):* saving a published translation,
+  which is live at once (D11), needs both too, with the same error. Before,
+  an edit could clear them on a live post.
 - **D10 — Slug:** the admin UI suggests it from the English title. The API only
   validates the format (`^[a-z0-9]+(-[a-z0-9]+)*$`) and uniqueness
   (`409 DUPLICATE_SLUG`). It can change freely until the post is first
@@ -762,25 +766,93 @@ Goal: lock in behavior with TestContainers-backed integration tests
 
 ## Phase 6 — Polish
 
-- [ ] **6.1 OpenAPI grouping + auth** — split public vs admin paths into
-  separate springdoc groups so `/swagger-ui.html` is navigable, and register
-  an `apiKey` security scheme (header `X-API-Key`) so the Authorize button
-  works — without it every "Try it out" call 401s. Document `Accept-Language`
-  on public endpoints and list every error `code` (D17: they're the contract).
-  This is the frontend's integration reference, so document every parameter,
-  request and response field (with the formats, limits and fallbacks from the
-  decisions above), header, error `code` and field-level `code` on each
-  endpoint, public and admin. Done after Phase 3 is implemented.
+> Checked against the code and springdoc 3.0.2 on 2026-11-02, before
+> starting. The generated spec had: one ungrouped document, no security scheme,
+> `*/*` as every content type, colliding operation ids (`get`, `get_1`,
+> `list_2`), `200` for the `201`/`204` responses, no error responses at all,
+> no `required` on any response field (a generated TypeScript client would
+> make every field optional), and no `page`/`size` on the admin list (its
+> `Pageable` is hidden). 6.1 is split into the steps below; 6.4 belongs to the
+> frontend repository.
+>
+> Status 2026-11-02: 6.1–6.3 done. Full suite 232/232 green, Spotless and
+> SpotBugs clean. Swagger UI checked in a browser with `APP_DOCS_PUBLIC=true`:
+> it opens on Public API, Authorize sends the key, "Try it out" on an unknown
+> slug with `Accept-Language: uk` returns the Ukrainian `NOT_FOUND` with
+> `Content-Language: uk`, error responses list their codes with an example
+> per code, and the Admin API switch shows its 14 operations.
+>
+> Deviations and findings:
+> - The ungrouped `/v3/api-docs` is off (`springdoc.enable-default-api-docs`):
+>   it served every path without the groups' security schemes and headers.
+> - Swagger UI matches its primary group by display name (`Public API`), not
+>   by group name.
+> - `ApiErrorOperationCustomizer` documents the 500 on every operation too,
+>   and each group registers the `ApiErrorResponse` schema itself.
+> - Swagger UI's primary group is set by a bean in `OpenApiConfig` from the
+>   same constant as the display name, not in `application.properties`.
+> - Fixed after the code review (behavior):
+>   - Saving a published translation re-checks D9 (see D9): before, it could
+>     clear `excerpt` or `metaDescription` on a live post.
+>   - A blank tag name is reported as `names[en]`, not `names[EN]` (D18):
+>     `GlobalExceptionHandler` rewrites locale map keys in field names.
+
+- [x] **6.1 OpenAPI: the frontend's integration reference**
+  - **Groups:** `public` (`/api/v1/**` without `/api/v1/admin/**`) and
+    `admin` (`/api/v1/admin/**`), as `GroupedOpenApi` beans in a
+    `shared.OpenApiConfig`; Swagger UI opens on `public`. The docs chain
+    (D22) also matches `/v3/api-docs.yaml/**` (a group's YAML).
+  - **Auth:** each group registers its own `apiKey` scheme (`publicApiKey` /
+    `adminApiKey`) on the header from `app.security.headerName`, applied to
+    every operation, so Authorize works. Every public operation documents
+    `401` and every admin one `403`, both with an empty body.
+  - **Shape:** JSON content types (`springdoc.default-produces-media-type`),
+    one `@Tag` per controller, an explicit `operationId` and summary per
+    endpoint, `201` with `Location` for creates, `204` for deletes.
+  - **Locale:** an `Accept-Language` header parameter on every operation
+    (public: content and error language, D1; admin: error language only,
+    D15), and `Content-Language` / `Vary` on every response except the empty
+    401/403 (D3).
+  - **Errors:** a repeatable `shared.ApiError(status, code, when)` annotation
+    on each endpoint names the error codes it returns and when; an operation
+    customizer turns them into one response per status (an `ApiErrorResponse`
+    body, the codes listed, an example per code with its English message).
+    Every operation also gets `500 INTERNAL_ERROR`. The envelope's `code` is
+    an enum of `ErrorCode` (D17); the API description lists every code,
+    including the generic ones (`UNSUPPORTED_REQUEST`, `REQUEST_REJECTED`,
+    `CONFLICT`), and every field-level code (`NOT_BLANK`, `NOT_NULL`, `SIZE`,
+    `PATTERN`, `UNKNOWN_TAG`).
+  - **Fields:** `@Schema` descriptions with the formats, limits and fallbacks
+    from the decisions above (D6, D7, D10, D18, …). Nullability is explicit:
+    record components that can be `null` carry JSpecify `@Nullable`, and a
+    model converter marks every other component `required` and the
+    `@Nullable` ones nullable (responses always include null fields, except
+    the error envelope, which omits them).
+  - **Pagination:** a `shared.PageParameters` meta-annotation documents
+    `page` and `size` (D4) on both list endpoints.
+  - **Tests:** `OpenApiDocsTest` checks the groups, security schemes, error
+    responses (every `ErrorCode` documented somewhere), unique operation ids,
+    required/nullable fields and the admin list's page parameters.
 - [x] **6.2 Error message keys** — every new `ErrorCode` has keys in
   `messages.properties`, `messages_uk.properties` and `messages_ja.properties`.
   Done in Phase 2: `ErrorCodeMessagesTest` fails if any `ErrorCode` key is
   missing from any of the three files; since Phase 3 it checks the
   `FieldErrorCode` keys (`error.field.*`) too.
-- [ ] **6.3 ADR** — if the caching strategy or sanitization policy involved a
-  non-obvious tradeoff, write an ADR following the existing
-  `docs/adr/ADR-001` format.
+- [x] **6.3 ADR** — both involved non-obvious tradeoffs, so each gets one, in
+  the `ADR-001` format and indexed in `docs/adr/README.md`:
+  - ADR-002, caching public reads: cache-aside on the two public reads,
+    evict-all on every admin write after the commit (not `transactionAware`),
+    a TTL only as a safety net, a cache that never fails a request, strict
+    deserialization so a shape change is a miss, and the accepted
+    read-before-commit race (D24–D26).
+  - ADR-003, sanitizing post bodies on write: OWASP allowlist matched to
+    CKEditor 5's output, applied once on save so reads (and the cache) serve
+    stored HTML as-is; a later policy change applies only to bodies saved
+    after it.
 - [ ] **6.4 Connect the frontend** — point the Personal Website project at
-  the new public endpoints (see "Frontend responsibilities" above).
+  the new public endpoints (see "Frontend responsibilities" above). Work in
+  the frontend repository, not here; it can generate its types from
+  `/v3/api-docs/public`.
 
 ---
 

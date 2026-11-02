@@ -7,6 +7,8 @@ This directory contains Architecture Decision Records (ADRs) for the project. An
 | ADR | Title | Status |
 |-----|-------|--------|
 | [ADR-001](ADR-001-api-key-authentication.md) | API Key Authentication Strategy | Accepted |
+| [ADR-002](ADR-002-caching-public-blog-reads.md) | Caching Public Blog Reads in Redis | Accepted |
+| [ADR-003](ADR-003-sanitizing-post-bodies-on-write.md) | Sanitizing Post Bodies on Write | Accepted |
 
 ## Format
 
