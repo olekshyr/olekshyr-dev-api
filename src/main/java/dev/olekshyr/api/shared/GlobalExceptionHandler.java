@@ -10,6 +10,7 @@ import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.Nullable;
+import org.springframework.beans.TypeMismatchException;
 import org.springframework.context.MessageSource;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -23,6 +24,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 /**
@@ -155,6 +157,32 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
       )
       .toList();
 
+    return validationFailed(ex, details, headers, status, request);
+  }
+
+  /**
+   * A query parameter or path variable that doesn't convert (?sort=x,
+   * /posts/abc): VALIDATION_FAILED, with the parameter named in details.
+   */
+  @Override
+  protected ResponseEntity<Object> handleTypeMismatch(
+    TypeMismatchException ex,
+    HttpHeaders headers,
+    HttpStatusCode status,
+    WebRequest request
+  ) {
+    String field = ex instanceof MethodArgumentTypeMismatchException mismatch
+      ? mismatch.getName()
+      : ex.getPropertyName();
+    List<ApiFieldError> details = field == null
+      ? List.of()
+      : List.of(
+        new ApiFieldError(
+          field,
+          FieldErrorCode.INVALID_VALUE.name(),
+          message(FieldErrorCode.INVALID_VALUE)
+        )
+      );
     return validationFailed(ex, details, headers, status, request);
   }
 

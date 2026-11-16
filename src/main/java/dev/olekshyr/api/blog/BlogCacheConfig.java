@@ -2,6 +2,7 @@ package dev.olekshyr.api.blog;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import dev.olekshyr.api.shared.PageResponse;
+import java.util.List;
 import org.springframework.boot.cache.autoconfigure.RedisCacheManagerBuilderCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -23,6 +24,7 @@ class BlogCacheConfig {
 
   static final String POST_LIST = "blog-post-list";
   static final String POST_DETAIL = "blog-post-detail";
+  static final String TAG_LIST = "blog-tag-list";
 
   @Bean
   RedisCacheManagerBuilderCustomizer blogCaches(JsonMapper jsonMapper) {
@@ -43,6 +45,9 @@ class BlogCacheConfig {
       .getTypeFactory()
       .constructParametricType(PageResponse.class, PostSummaryResponse.class);
     JavaType detail = mapper.constructType(PostDetailResponse.class);
+    JavaType tags = mapper
+      .getTypeFactory()
+      .constructCollectionType(List.class, TagSummaryResponse.class);
     return builder ->
       builder
         .withCacheConfiguration(
@@ -52,6 +57,10 @@ class BlogCacheConfig {
         .withCacheConfiguration(
           POST_DETAIL,
           typed(builder.cacheDefaults(), mapper, detail)
+        )
+        .withCacheConfiguration(
+          TAG_LIST,
+          typed(builder.cacheDefaults(), mapper, tags)
         );
   }
 

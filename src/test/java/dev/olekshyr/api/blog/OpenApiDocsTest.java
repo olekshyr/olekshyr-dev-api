@@ -51,7 +51,11 @@ class OpenApiDocsTest {
     );
 
     assertThat(publicPaths)
-      .containsExactlyInAnyOrder("/api/v1/posts", "/api/v1/posts/{slug}");
+      .containsExactlyInAnyOrder(
+        "/api/v1/posts",
+        "/api/v1/posts/{slug}",
+        "/api/v1/tags"
+      );
     assertThat(adminPaths)
       .isNotEmpty()
       .allMatch(path -> path.startsWith("/api/v1/admin/"));
@@ -179,7 +183,14 @@ class OpenApiDocsTest {
     ids.addAll(JsonPath.read(spec("admin"), "$.paths.*.*.operationId"));
 
     assertThat(ids).doesNotHaveDuplicates().noneMatch(id -> id.contains("_"));
-    assertThat(ids).contains("listPosts", "getPost", "createPost", "deleteTag");
+    assertThat(ids)
+      .contains(
+        "listPosts",
+        "getPost",
+        "listPublicTags",
+        "createPost",
+        "deleteTag"
+      );
   }
 
   @Test
@@ -342,7 +353,14 @@ class OpenApiDocsTest {
         "$.paths['/api/v1/posts'].get.parameters[*].name"
       )
     )
-      .containsExactlyInAnyOrder("page", "size", "Accept-Language");
+      .containsExactlyInAnyOrder(
+        "page",
+        "size",
+        "tag",
+        "sort",
+        "include",
+        "Accept-Language"
+      );
     assertThat(
       JsonPath.<List<String>>read(
         spec("admin"),
@@ -350,6 +368,69 @@ class OpenApiDocsTest {
       )
     )
       .containsExactlyInAnyOrder("page", "size", "deleted", "Accept-Language");
+  }
+
+  @Test
+  void listParameters_documentTheirAllowedValues() throws Exception {
+    String spec = spec("public");
+    String params = "$.paths['/api/v1/posts'].get.parameters";
+
+    assertThat(
+      JsonPath.<List<List<String>>>read(
+        spec,
+        params + "[?(@.name == 'sort')].schema.enum"
+      )
+    )
+      .containsExactly(List.of("publishedAt,desc", "publishedAt,asc"));
+    assertThat(
+      JsonPath.<List<List<String>>>read(
+        spec,
+        params + "[?(@.name == 'include')].schema.enum"
+      )
+    )
+      .containsExactly(List.of("untranslated"));
+    assertThat(
+      JsonPath.<Map<String, Object>>read(
+        spec,
+        "$.paths['/api/v1/posts'].get.responses"
+      )
+    )
+      .containsKey("400");
+    assertThat(
+      JsonPath.<List<String>>read(
+        spec,
+        "$.paths['/api/v1/tags'].get.parameters[*].name"
+      )
+    )
+      .containsExactlyInAnyOrder("include", "Accept-Language");
+  }
+
+  @Test
+  void newFields_documentTheirNullability() throws Exception {
+    String spec = spec("public");
+    String schemas = "$.components.schemas";
+
+    assertThat(
+      JsonPath.<List<String>>read(
+        spec,
+        schemas + ".PostDetailResponse.required"
+      )
+    )
+      .doesNotContain("previous", "next");
+    assertThat(
+      JsonPath.<List<String>>read(
+        spec,
+        schemas + ".PostSummaryResponse.required"
+      )
+    )
+      .contains("translated", "locale", "availableLocales");
+    assertThat(
+      JsonPath.<List<String>>read(
+        spec,
+        schemas + ".TagSummaryResponse.required"
+      )
+    )
+      .containsExactlyInAnyOrder("slug", "name", "postCount");
   }
 
   @Test

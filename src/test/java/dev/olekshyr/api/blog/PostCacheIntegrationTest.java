@@ -1,6 +1,8 @@
 package dev.olekshyr.api.blog;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -112,12 +114,57 @@ class PostCacheIntegrationTest {
     }
 
     @Test
-    void list_ignoredSortParameterSharesTheEntry() throws Exception {
+    void list_explicitDefaultSortSharesTheEntry() throws Exception {
       body("/api/v1/posts", "en");
       retitleInDatabase("hello-world", "en", "Changed in the database");
 
-      publicGet("/api/v1/posts?sort=title,asc", "en")
+      publicGet("/api/v1/posts?sort=publishedAt,desc", "en")
         .andExpect(jsonPath("$.content[1].title").value("Hello, world"));
+    }
+
+    @Test
+    void list_isCachedPerSortTagAndInclude() throws Exception {
+      body("/api/v1/posts", "en");
+      retitleInDatabase("hello-world", "en", "Changed in the database");
+
+      publicGet("/api/v1/posts?sort=publishedAt,asc", "en")
+        .andExpect(
+          jsonPath("$.content[0].title").value("Changed in the database")
+        );
+      publicGet("/api/v1/posts?tag=java", "en")
+        .andExpect(
+          jsonPath("$.content[0].title").value("Changed in the database")
+        );
+      publicGet("/api/v1/posts?include=untranslated", "en")
+        .andExpect(
+          jsonPath("$.content[2].title").value("Changed in the database")
+        );
+      assertThat(redis.keys("blog-post-list::*"))
+        .containsExactlyInAnyOrder(
+          "blog-post-list::en:0:10:newest:translated:*",
+          "blog-post-list::en:0:10:oldest:translated:*",
+          "blog-post-list::en:0:10:newest:translated:java",
+          "blog-post-list::en:0:10:newest:all:*"
+        );
+    }
+
+    @Test
+    void list_emptyResultForATag_isNotCached() throws Exception {
+      body("/api/v1/posts?tag=no-such-tag", "en");
+
+      assertThat(redis.keys("blog-post-list::*")).isEmpty();
+    }
+
+    @Test
+    void tagList_isCachedPerLocaleAndInclude() throws Exception {
+      body("/api/v1/tags", "en");
+      body("/api/v1/tags?include=untranslated", "uk");
+
+      assertThat(redis.keys("blog-tag-list::*"))
+        .containsExactlyInAnyOrder(
+          "blog-tag-list::en:translated",
+          "blog-tag-list::uk:all"
+        );
     }
 
     @Test
@@ -148,10 +195,10 @@ class PostCacheIntegrationTest {
     void emptyPagePastTheEnd_isNotCached() throws Exception {
       body("/api/v1/posts?page=5", "en");
 
-      assertThat(redis.hasKey("blog-post-list::en:5:10")).isFalse();
-      assertThat(redis.hasKey("blog-post-list::en:0:10")).isFalse();
+      assertThat(redis.keys("blog-post-list::*")).isEmpty();
       body("/api/v1/posts", "en");
-      assertThat(redis.hasKey("blog-post-list::en:0:10")).isTrue();
+      assertThat(redis.hasKey("blog-post-list::en:0:10:newest:translated:*"))
+        .isTrue();
     }
 
     @Test
@@ -225,6 +272,33 @@ class PostCacheIntegrationTest {
 
       publicGet("/api/v1/posts/hello-world", "en")
         .andExpect(jsonPath("$.tags[0].name").value("Java 25"));
+    }
+
+    @Test
+    void setPostTags_updatesTheTagListAndNeighbours() throws Exception {
+      body("/api/v1/tags", "en");
+      body("/api/v1/posts/hello-world", "en");
+
+      adminJson(
+        put("/api/v1/admin/posts/" + postId("second-post") + "/tags"),
+        """
+        {"tagSlugs": ["java"]}
+        """
+      )
+        .andExpect(status().isOk());
+      admin(
+        post(
+          "/api/v1/admin/posts/" +
+          postId("second-post") +
+          "/translations/en/unpublish"
+        )
+      )
+        .andExpect(status().isOk());
+
+      publicGet("/api/v1/tags", "en")
+        .andExpect(jsonPath("$[*].slug").value(contains("java", "spring")));
+      publicGet("/api/v1/posts/hello-world", "en")
+        .andExpect(jsonPath("$.next").value(nullValue()));
     }
 
     @Test

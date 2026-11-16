@@ -11,7 +11,8 @@ import java.lang.annotation.Target;
 
 /**
  * Documents page and size on a list endpoint whose Pageable parameter is
- * hidden. Any sort parameter is ignored, so it isn't documented (D4).
+ * hidden. The Pageable's own sort is never used: an endpoint that sorts
+ * declares its own {@code sort} parameter (D27), the others ignore it (D4).
  */
 @Documented
 @Target({ ElementType.METHOD, ElementType.ANNOTATION_TYPE })
