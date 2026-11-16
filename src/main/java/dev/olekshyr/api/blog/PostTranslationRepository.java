@@ -1,47 +1,28 @@
 package dev.olekshyr.api.blog;
 
 import dev.olekshyr.api.shared.SupportedLocale;
+import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 interface PostTranslationRepository
-  extends JpaRepository<PostTranslation, Long> {
+  extends JpaRepository<PostTranslation, Long>, VisiblePostQueries {
+  /** The published translations of these posts, with the post fetched. */
   @Query(
-    value = """
+    """
     SELECT t FROM PostTranslation t JOIN FETCH t.post p
-    WHERE t.locale = :locale
+    WHERE p.id IN :postIds
       AND t.status = dev.olekshyr.api.blog.PostStatus.PUBLISHED
-      AND p.deletedAt IS NULL
-    ORDER BY t.publishedAt DESC, t.id DESC
-    """,
-    countQuery = """
-    SELECT COUNT(t) FROM PostTranslation t
-    WHERE t.locale = :locale
-      AND t.status = dev.olekshyr.api.blog.PostStatus.PUBLISHED
-      AND t.post.deletedAt IS NULL
     """
   )
-  Page<PostTranslation> findVisibleInOrdered(
-    @Param("locale") SupportedLocale locale,
-    Pageable pageable
+  List<PostTranslation> findPublishedByPostIdIn(
+    @Param("postIds") Collection<Long> postIds
   );
-
-  /** Ordering is fixed (publishedAt DESC); any sort in the pageable is dropped. */
-  default Page<PostTranslation> findVisibleIn(
-    SupportedLocale locale,
-    Pageable pageable
-  ) {
-    return findVisibleInOrdered(
-      locale,
-      PageRequest.of(pageable.getPageNumber(), pageable.getPageSize())
-    );
-  }
 
   @Query(
     """
@@ -66,4 +47,46 @@ interface PostTranslationRepository
     """
   )
   List<SupportedLocale> findVisibleLocalesBySlug(@Param("slug") String slug);
+
+  /**
+   * Visible in the locale and before the given position in (publishedAt,
+   * slug) order, nearest first: the list's order (D27), so a post's previous
+   * neighbour is the one below it on the newest-first list.
+   */
+  @Query(
+    """
+    SELECT t FROM PostTranslation t JOIN FETCH t.post p
+    WHERE t.locale = :locale
+      AND t.status = dev.olekshyr.api.blog.PostStatus.PUBLISHED
+      AND p.deletedAt IS NULL
+      AND (t.publishedAt < :publishedAt
+        OR (t.publishedAt = :publishedAt AND p.slug < :slug))
+    ORDER BY t.publishedAt DESC, p.slug DESC
+    """
+  )
+  List<PostTranslation> findVisibleBefore(
+    @Param("locale") SupportedLocale locale,
+    @Param("publishedAt") Instant publishedAt,
+    @Param("slug") String slug,
+    Limit limit
+  );
+
+  /** The mirror of {@link #findVisibleBefore}: after, nearest first. */
+  @Query(
+    """
+    SELECT t FROM PostTranslation t JOIN FETCH t.post p
+    WHERE t.locale = :locale
+      AND t.status = dev.olekshyr.api.blog.PostStatus.PUBLISHED
+      AND p.deletedAt IS NULL
+      AND (t.publishedAt > :publishedAt
+        OR (t.publishedAt = :publishedAt AND p.slug > :slug))
+    ORDER BY t.publishedAt ASC, p.slug ASC
+    """
+  )
+  List<PostTranslation> findVisibleAfter(
+    @Param("locale") SupportedLocale locale,
+    @Param("publishedAt") Instant publishedAt,
+    @Param("slug") String slug,
+    Limit limit
+  );
 }

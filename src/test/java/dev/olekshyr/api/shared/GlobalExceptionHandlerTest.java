@@ -229,7 +229,10 @@ class GlobalExceptionHandlerTest {
         get("/test/number").param("n", "abc").header("X-API-Key", "pub-key")
       )
       .andExpect(status().isBadRequest())
-      .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+      .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+      .andExpect(jsonPath("$.details[0].field").value("n"))
+      .andExpect(jsonPath("$.details[0].code").value("INVALID_VALUE"))
+      .andExpect(jsonPath("$.details[0].message").value("Invalid value."));
   }
 
   @Test

@@ -6,7 +6,9 @@ package dev.olekshyr.api.shared;
  */
 public enum FieldErrorCode {
   NOT_BLANK("error.field.not_blank"),
-  UNKNOWN_TAG("error.field.unknown_tag");
+  UNKNOWN_TAG("error.field.unknown_tag"),
+  /** A query parameter or path segment that doesn't parse, e.g. ?sort=x. */
+  INVALID_VALUE("error.field.invalid_value");
 
   private final String messageKey;
 

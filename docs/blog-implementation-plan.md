@@ -1,6 +1,7 @@
 # Blog Feature — Implementation Plan
 
-**Status:** In progress (only 6.4, in the frontend repository, is left) ·
+**Status:** In progress (only 6.4, in the frontend repository, is left;
+Phase 7 added 2026-11-16) ·
 **Date:** 2026-06-11 · **Decisions agreed:** 2026-10-17
 (Phase 2 review: 2026-10-22; Phase 3–6 checked against the code: 2026-10-22;
 Phase 4 review: 2026-10-22; Phase 6 review: 2026-11-02)
@@ -60,6 +61,9 @@ disagree, this section wins.
   totalPages } }`. It's safe to cache (Phase 4) and explicit in OpenAPI;
   `spring.data.web.page.serialization-mode=via_dto` stays as a safety net. It
   applies to every list endpoint, public and admin.
+  *Amended 2026-11-16 (Phase 7):* the public post list takes its own `sort`
+  (D27), and an unsupported `sort` or `include` value is a 400. `page` and
+  `size` stay lenient, and the admin list still ignores `sort`.
 - **D5 — Missing translation:** if the post is visible in at least one other
   locale but not the requested one, return a plain
   `404 TRANSLATION_NOT_AVAILABLE` (localized message, no locale list). A post
@@ -73,6 +77,8 @@ disagree, this section wins.
   as `TagResponse` (`slug`, `name`, `color`), sorted by `slug` (stable across
   locales, no collation needed). There is no `GET /api/v1/tags` in v1; it moves
   to v2 with filter-by-tag.
+  *Amended 2026-11-16 (Phase 7):* both were pulled forward for the paginated
+  list (D29).
 - **D7 — Post detail fields** include `publishedAt`, the translation's
   `updatedAt` (the frontend's JSON-LD `dateModified`), `readTimeMinutes`,
   `tags` and `availableLocales`. `metaTitle` falls back to `title` when empty.
@@ -189,6 +195,46 @@ disagree, this section wins.
   at `debug`: the request reads from Postgres and the fresh result overwrites
   the entry. A deploy that doesn't change the shape keeps the cache warm.
 
+### Paginated list (Phase 7, agreed 2026-11-16)
+
+The website lists the blog one page at a time, so filtering, ordering and the
+"not translated" rows it used to do in the browser over the whole blog move
+into the API. Every addition is optional, so existing clients keep working.
+
+- **D27 — `sort=publishedAt,desc` (default) or `sort=publishedAt,asc`.**
+  Spring's `property,direction` form, but whitelisted: any other value is
+  `400 VALIDATION_FAILED` naming `sort` in `details` (`INVALID_VALUE`), since
+  a silently ignored order would go unnoticed. Ties on the date are broken by
+  `slug` in the same direction, so oldest-first is the exact reverse of
+  newest-first and a post is never repeated or skipped across pages.
+- **D28 — `include=untranslated`** lists every post visible in at least one
+  locale; without it the list is as before. Each item says whether it's
+  `translated` (published in the resolved locale), the `locale` its content
+  is in (the resolved one, else the first in `en, uk, ja` order) and its
+  `availableLocales`; tag names stay in the resolved locale. Such a post sorts
+  by its **earliest** `publishedAt` in any locale, not the date it shows, so
+  every locale has the same order and the same pages, and page N in one
+  locale holds the same posts as page N in another. The cost: a row's date
+  can be later than its neighbour's (a translation published after the
+  original). Listing posts that aren't in the locale reveals nothing new:
+  `TRANSLATION_NOT_AVAILABLE` (D5) already admits they exist.
+- **D29 — `tag={slug}` filter and `GET /api/v1/tags`.** The filter is one
+  exact slug; an unknown one gives an empty page, never an error. The tag
+  list is a plain array (`slug`, `name`, `color`, `postCount`) of the tags
+  with at least one post in the list with the same `include` and locale,
+  sorted by slug. The list and the counts share one query definition, so a
+  tag's `postCount` always equals `totalElements` of the list filtered by it.
+- **D30 — `previous` / `next` on the post detail:** the nearest older and
+  newer posts published in the resolved locale, in the D27 order, as
+  `{ slug, title }`, null at either end. They live in the detail response, one
+  request per page; every admin write clears the detail cache (D24), so they
+  never go stale.
+- **D31 — Cache keys** (D24–D26 otherwise unchanged): `blog-post-list` is keyed
+  `locale:page:size:order:scope:tag` (`*` for no tag; it can't be a slug), and
+  a new `blog-tag-list` is keyed `locale:scope`; every admin write clears all
+  three caches. An empty page isn't cached past the first or for any tag, so
+  arbitrary tag slugs can't fill Redis.
+
 ### Frontend responsibilities (no API work, recorded for the Next.js side)
 
 - Send the URL's locale as `Accept-Language` (D2).
@@ -200,10 +246,7 @@ disagree, this section wins.
 - Admin post editor with locale tabs (EN | UK | JA) and a slug field suggested
   from the English title; a `/admin/tags` page.
 
-**Out of scope for v1:** filter by tag and the public tag list
-`GET /api/v1/tags` (data model and the `findUsedByPostsVisibleIn` query are
-ready; endpoints in v2),
-site search (v2), comments, scheduled publishing, media library, cover image
+**Out of scope for v1:** site search (v2), comments, scheduled publishing, media library, cover image
 (needs the media upload pipeline).
 
 ---
@@ -853,6 +896,27 @@ Goal: lock in behavior with TestContainers-backed integration tests
   the new public endpoints (see "Frontend responsibilities" above). Work in
   the frontend repository, not here; it can generate its types from
   `/v3/api-docs/public`.
+
+---
+
+## Phase 7 — Paginated list (D27–D31)
+
+Requested by the frontend once the blog list was split into pages.
+
+- [x] **7.1 Tag filter, sort, `include=untranslated`** on `GET /api/v1/posts`
+  (D27, D28): the list query is built in `VisiblePostQueriesImpl` (a Spring
+  Data fragment of `PostTranslationRepository`), pages post ids, then loads
+  the published translations of that page in one query.
+- [x] **7.2 `GET /api/v1/tags`** (`TagController`, `TagQueryService`, D29).
+- [x] **7.3 `previous` / `next`** on the detail (D30).
+- [x] **7.4 Caching** (D31): new keys, the `blog-tag-list` cache,
+  `@EvictsPublicPosts` clears all three.
+- [x] **7.5 Errors and docs:** a parameter or path variable that doesn't
+  convert now names itself in `details` (`INVALID_VALUE`, new
+  `FieldErrorCode`); the public OpenAPI group documents the new parameters,
+  fields, allowed values and the 400.
+- [x] **7.6 Tests:** repository (order, ties, tag filter, counts,
+  neighbours), public API, cache keys and eviction, OpenAPI.
 
 ---
 

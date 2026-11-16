@@ -4,6 +4,7 @@ import dev.olekshyr.api.shared.SupportedLocale;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
 import java.util.List;
+import org.jspecify.annotations.Nullable;
 
 @Schema(description = "A post in the requested locale.")
 record PostDetailResponse(
@@ -45,7 +46,19 @@ record PostDetailResponse(
     description = "Every locale the post is visible in, this one included, " +
     "in `en, uk, ja` order: the hreflang alternates."
   )
-  List<SupportedLocale> availableLocales
+  List<SupportedLocale> availableLocales,
+  @Schema(
+    description = "The next older post published in this locale (the list's " +
+    "order: `publishedAt`, then `slug`); null for the oldest."
+  )
+  @Nullable
+  PostLinkResponse previous,
+  @Schema(
+    description = "The next newer post published in this locale; null for " +
+    "the newest."
+  )
+  @Nullable
+  PostLinkResponse next
 ) {
   PostDetailResponse {
     tags = List.copyOf(tags);
@@ -54,7 +67,9 @@ record PostDetailResponse(
 
   static PostDetailResponse of(
     PostTranslation translation,
-    List<SupportedLocale> availableLocales
+    List<SupportedLocale> availableLocales,
+    @Nullable PostLinkResponse previous,
+    @Nullable PostLinkResponse next
   ) {
     Post post = translation.getPost();
     String metaTitle = translation.getMetaTitle();
@@ -74,7 +89,9 @@ record PostDetailResponse(
         translation.getBody(),
         translation.getLocale()
       ),
-      availableLocales
+      availableLocales,
+      previous,
+      next
     );
   }
 }
